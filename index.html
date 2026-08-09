@@ -129,12 +129,10 @@
     }
     .country-title { display:flex; align-items:center; gap:12px; }
     .flag {
-        width:62px; height:42px; border-radius:8px;
+        width:62px; height:42px; object-fit:cover; border-radius:8px;
         border:1px solid rgba(255,255,255,.18);
         background:rgba(255,255,255,.055);
-        display:grid; place-items:center;
-        font-size:33px; line-height:1;
-        overflow:hidden;
+        display:block;
     }
     .country-title h2 { margin:0; font-size:23px; }
     .country-title .en { color:var(--muted); font-size:13px; margin-top:3px; }
@@ -280,7 +278,7 @@
             <div class="info-head">
                 <button id="close" aria-label="關閉">×</button>
                 <div class="country-title">
-                    <div class="flag" id="flag" role="img" aria-label="國旗">🌐</div>
+                    <img class="flag" id="flag" alt="國旗" />
                     <div>
                         <h2 id="nameZh">—</h2>
                         <div class="en" id="nameEn">—</div>
@@ -292,7 +290,7 @@
             <div class="info-body">
                 <div class="grid">
                     <div class="card"><div class="label">國土面積</div><div class="value big" id="area">—</div><div class="sub">平方公里 km²</div></div>
-                    <div class="card"><div class="label">人口</div><div class="value big" id="population">—</div><div class="sub" id="populationNote">world-countries 資料集</div></div>
+                    <div class="card"><div class="label">人口</div><div class="value big" id="population">—</div><div class="sub" id="populationNote">World Bank 最新可用人口資料</div></div>
                     <div class="card wide"><div class="label">使用語言</div><div class="value" id="languages">—</div></div>
                     <div class="card"><div class="label">使用貨幣</div><div class="value" id="currency">—</div></div>
                     <div class="card"><div class="label">首都</div><div class="value" id="capital">—</div></div>
@@ -319,7 +317,7 @@
                 </div>
                 <div class="sources">
                     資料來源：HDI — UNDP Human Development Reports / Our World in Data；國家基本資料 — world-countries（ISO 3166 開源資料集）；
-                    薪資 — ILOSTAT；最高點 — Wikidata；氣溫 — Copernicus ERA5 / Our World in Data。<br>
+                    人口 — World Bank；薪資 — ILOSTAT；最高點 — Wikidata；氣溫 — Copernicus ERA5 / Our World in Data，NASA POWER（備援）。<br>
                     注意：跨國薪資統計的調查範圍、稅前/稅後與資料年份可能不同；四季均溫為全國陸地平均，幅員大的國家不等同於首都氣候。
                 </div>
             </div>
@@ -338,10 +336,12 @@ const URLS = {
     world: "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json",
     countries: "https://cdn.jsdelivr.net/npm/world-countries@5.1.0/countries.json",
     hdi: "https://ourworldindata.org/grapher/human-development-index.csv?v=1&csvType=full&useColumnShortNames=false",
-    temp: "https://ourworldindata.org/grapher/average-monthly-surface-temperature.csv?v=1&csvType=full&useColumnShortNames=false",
-    ilo: "https://rplumber.ilo.org/data/indicator/?id=EAR_4MTH_SEX_CUR_NB_A",
+    tempBase: "https://ourworldindata.org/grapher/average-monthly-surface-temperature.csv",
+    ilo: "https://rplumber.ilo.org/data/indicator/",
     fx: "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/",
-    wikidata: "https://query.wikidata.org/sparql"
+    wikidata: "https://query.wikidata.org/sparql",
+    worldBank: "https://api.worldbank.org/v2/country/",
+    nasaPower: "https://power.larc.nasa.gov/api/temporal/climatology/point"
 };
 
 const fmtInt = new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 0 });
@@ -356,7 +356,7 @@ const countriesG = g.append("g");
 
 let width=0, height=0, worldFeatures=[], countryByNumeric=new Map(), countryByAlpha3=new Map();
 let hdiByCode=new Map(), hdiHistory=new Map(), hdiYears=[], selectedHdiYear=null, latestHdiYear=null, selectedPath=null, selectedCountry=null, playTimer=null;
-let tempPromise=null, iloPromise=null, fxCache=new Map();
+let fxCache=new Map(), populationCache=new Map(), tempCache=new Map(), salaryCache=new Map();
 
 const projection = d3.geoNaturalEarth1();
 const path = d3.geoPath(projection);
@@ -383,8 +383,69 @@ function setStatus(text, strong="就緒") {
     $("status").innerHTML = `<b>${strong}</b> · ${text}`;
 }
 function safe(v, fallback="—") { return (v===null || v===undefined || v==="") ? fallback : v; }
+const regionNamesZhTW = (() => {
+    try { return new Intl.DisplayNames(["zh-TW"], { type: "region" }); }
+    catch (_) { return null; }
+})();
+const languageNamesZhTW = (() => {
+    try { return new Intl.DisplayNames(["zh-TW"], { type: "language" }); }
+    catch (_) { return null; }
+})();
+const currencyNamesZhTW = (() => {
+    try { return new Intl.DisplayNames(["zh-TW"], { type: "currency" }); }
+    catch (_) { return null; }
+})();
+
+const COUNTRY_OVERRIDES = {
+    TWN: {
+        zh: "臺灣",
+        capitalZh: "臺北",
+        capitalEn: "Taipei",
+        population: 23243565,
+        populationYear: "2026-06",
+        salaryTwd: 62579,
+        salaryYear: "2026-05",
+        peakZh: "玉山",
+        peakEn: "Yushan",
+        peakM: 3952
+    }
+};
+
 function countryZh(c) {
-    return c?.translations?.zho?.common || c?.translations?.zho?.official || c?.name?.common || "—";
+    const override = COUNTRY_OVERRIDES[c?.cca3]?.zh;
+    if (override) return override;
+    if (c?.cca2 && regionNamesZhTW) {
+        try {
+            const s = regionNamesZhTW.of(c.cca2);
+            if (s && s !== c.cca2) return s;
+        } catch (_) {}
+    }
+    // Avoid simplified-Chinese fallback. English is preferred if zh-TW is unavailable.
+    return c?.name?.common || "—";
+}
+
+function languageZh(code, fallback) {
+    if (languageNamesZhTW && code) {
+        try {
+            const s = languageNamesZhTW.of(code);
+            if (s && s !== code) return s;
+        } catch (_) {}
+    }
+    return fallback || code || "—";
+}
+
+function currencyZh(code, fallback) {
+    if (currencyNamesZhTW && code) {
+        try {
+            const s = currencyNamesZhTW.of(code);
+            if (s && s !== code) return s;
+        } catch (_) {}
+    }
+    return fallback || code || "—";
+}
+
+function flagUrl(c) {
+    return c?.cca2 ? `https://flagcdn.com/${c.cca2.toLowerCase()}.svg` : "";
 }
 
 function countryForFeature(f) {
@@ -393,7 +454,7 @@ function countryForFeature(f) {
         ccn3: numeric,
         cca3: null,
         cca2: null,
-        flag: "🌐",
+        flag: "",
         name: { common: f?.properties?.name || "Unknown" },
         translations: {},
         population: null,
@@ -497,6 +558,13 @@ async function loadHdiData() {
             hdiHistory.get(r.Code).set(year, val);
         }
 
+        // Taiwan is not listed in UNDP's country table. DGBAS calculates it
+        // using the same international HDI methodology.
+        if (!hdiHistory.has("TWN")) hdiHistory.set("TWN", new Map());
+        hdiHistory.get("TWN").set(2019, 0.916);
+        hdiHistory.get("TWN").set(2021, 0.926);
+        hdiHistory.get("TWN").set(2023, 0.934);
+
         hdiYears = [...new Set(validHdiRows.map(r => +r.Year))]
             .filter(Number.isFinite)
             .sort((a, b) => a - b);
@@ -592,23 +660,32 @@ async function openCountry(c, node) {
 
     $("nameZh").textContent=countryZh(c);
     $("nameEn").textContent=c.name.common;
-    $("flag").textContent = c.flag || "🌐";
-    $("flag").setAttribute("aria-label", `${countryZh(c)}國旗`);
+    $("flag").src = flagUrl(c);
+    $("flag").alt = `${countryZh(c)}國旗`;
+    $("flag").onerror = () => {
+        $("flag").removeAttribute("src");
+        $("flag").alt = `${countryZh(c)}國旗暫時無法載入`;
+    };
     const h=hdiByCode.get(c.cca3);
-    $("hdiPill").textContent=`HDI：${h?.toFixed(3) ?? "—"}${h ? ` · ${hdiLabel(h)}` : ""} · ${selectedHdiYear}`;
+    $("hdiPill").textContent=`HDI：${h?.toFixed(3) ?? "—"}${h ? ` · ${hdiLabel(h)}` : ""}${selectedHdiYear ? ` · ${selectedHdiYear}` : ""}`;
     $("area").textContent = Number.isFinite(+c.area) ? fmtInt.format(+c.area) : "—";
-    $("population").textContent = Number.isFinite(+c.population) ? fmtInt.format(+c.population) : "—";
+    $("population").textContent = "查詢中…";
+    $("populationNote").textContent = "World Bank 最新可用人口資料";
 
-    const langs=Object.values(c.languages || {});
-    $("languages").textContent=langs.length ? langs.join("、") : "—";
-
-    const currencies=Object.entries(c.currencies || {});
-    $("currency").textContent=currencies.length
-        ? currencies.map(([code,v]) => `${v.name || code}（${code}${v.symbol ? ` · ${v.symbol}`:""}）`).join("、")
+    const langs = Object.entries(c.languages || {});
+    $("languages").textContent = langs.length
+        ? langs.map(([code, name]) => languageZh(code, name)).join("、")
         : "—";
 
-    const capZh = c.capital?.length ? c.capital.join("、") : "—";
-    $("capital").textContent=capZh;
+    const currencies = Object.entries(c.currencies || {});
+    $("currency").textContent = currencies.length
+        ? currencies.map(([code,v]) => `${currencyZh(code, v.name)}（${code}${v.symbol ? ` · ${v.symbol}`:""}）`).join("、")
+        : "—";
+
+    const override = COUNTRY_OVERRIDES[c.cca3];
+    $("capital").textContent = override
+        ? `${override.capitalZh} · ${override.capitalEn}`
+        : (c.capital?.length ? c.capital.join("、") : "—");
 
     ["salary","peak"].forEach(id => { $(id).classList.add("loading"); $(id).textContent="查詢中"; });
     ["spring","summer","autumn","winter"].forEach(id => $(id).textContent="…");
@@ -631,6 +708,7 @@ async function openCountry(c, node) {
     }
 
     Promise.allSettled([
+        loadPopulation(c),
         loadSalary(c),
         loadPeak(c),
         loadTemperature(c)
@@ -709,31 +787,98 @@ $("search").addEventListener("keydown", e => {
     openCountry(c,node);
 });
 
-async function loadPeak(c) {
-    const query = `
-SELECT ?peak ?peakLabel ?elevation WHERE {
-  ?country wdt:P298 "${c.cca3}".
-  ?country wdt:P610 ?peak.
-  OPTIONAL { ?peak wdt:P2044 ?elevation. }
-  SERVICE wikibase:label { bd:serviceParam wikibase:language "zh-tw,zh,en". }
-} LIMIT 5`;
-    const url=URLS.wikidata+"?format=json&query="+encodeURIComponent(query);
+
+async function loadPopulation(c) {
+    const override = COUNTRY_OVERRIDES[c.cca3];
+    if (override?.population) {
+        $("population").textContent = fmtInt.format(override.population);
+        $("populationNote").textContent = `內政部戶籍人口 · ${override.populationYear}`;
+        return;
+    }
+
+    if (populationCache.has(c.cca3)) {
+        const r = populationCache.get(c.cca3);
+        $("population").textContent = fmtInt.format(r.value);
+        $("populationNote").textContent = `World Bank · ${r.year}`;
+        return;
+    }
+
     try {
-        const res=await fetch(url,{headers:{"Accept":"application/sparql-results+json"}});
-        if(!res.ok) throw new Error(`Wikidata ${res.status}`);
-        const data=await res.json();
-        const rows=data.results?.bindings || [];
-        if(!rows.length) throw new Error("No peak");
-        rows.sort((a,b)=>(+(b.elevation?.value||0))-(+(a.elevation?.value||0)));
-        const r=rows[0];
-        const elevation=+(r.elevation?.value||NaN);
-        $("peak").textContent=`${r.peakLabel?.value || "國家最高點"}${Number.isFinite(elevation) ? ` · ${fmtInt.format(elevation)} m` : ""}`;
-        $("peakNote").textContent=Number.isFinite(elevation) ? "Wikidata：最高點與海拔" : "Wikidata：最高點（海拔資料缺值）";
-    } catch(err) {
-        console.warn("Peak",err);
-        $("peak").textContent="資料暫缺";
-        $("peakNote").textContent="此國家在 Wikidata 未取得可用的最高點結構化資料";
-    } finally { $("peak").classList.remove("loading"); }
+        const url = `${URLS.worldBank}${encodeURIComponent(c.cca3)}/indicator/SP.POP.TOTL?format=json&mrnev=1`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`World Bank ${res.status}`);
+        const data = await res.json();
+        const row = data?.[1]?.find(x => Number.isFinite(+x.value));
+        if (!row) throw new Error("No population");
+        const result = { value: +row.value, year: row.date };
+        populationCache.set(c.cca3, result);
+        $("population").textContent = fmtInt.format(result.value);
+        $("populationNote").textContent = `World Bank · ${result.year}`;
+    } catch (err) {
+        console.warn("Population", err);
+        $("population").textContent = "資料暫缺";
+        $("populationNote").textContent = "World Bank 此國家目前沒有可用人口資料";
+    }
+}
+
+async function loadPeak(c) {
+    const override = COUNTRY_OVERRIDES[c.cca3];
+    if (override?.peakM) {
+        $("peak").textContent = `${override.peakZh} · ${override.peakEn} · ${fmtInt.format(override.peakM)} m`;
+        $("peakNote").textContent = "國家最高點";
+        $("peak").classList.remove("loading");
+        return;
+    }
+
+    const query = `
+SELECT ?peak ?elevation ?peakZh ?peakEn ?capitalZh ?capitalEn WHERE {
+  ?country wdt:P31/wdt:P279* wd:Q6256;
+           wdt:P298 "${c.cca3}".
+  OPTIONAL {
+    ?country wdt:P610 ?peak.
+    OPTIONAL { ?peak wdt:P2044 ?elevation. }
+    OPTIONAL { ?peak rdfs:label ?peakZh FILTER(LANG(?peakZh)="zh-tw") }
+    OPTIONAL { ?peak rdfs:label ?peakEn FILTER(LANG(?peakEn)="en") }
+  }
+  OPTIONAL {
+    ?country wdt:P36 ?capital.
+    OPTIONAL { ?capital rdfs:label ?capitalZh FILTER(LANG(?capitalZh)="zh-tw") }
+    OPTIONAL { ?capital rdfs:label ?capitalEn FILTER(LANG(?capitalEn)="en") }
+  }
+} LIMIT 10`;
+
+    const url = URLS.wikidata + "?format=json&query=" + encodeURIComponent(query);
+
+    try {
+        const res = await fetch(url, { headers: { "Accept": "application/sparql-results+json" } });
+        if (!res.ok) throw new Error(`Wikidata ${res.status}`);
+        const data = await res.json();
+        const rows = data.results?.bindings || [];
+        if (!rows.length) throw new Error("No country metadata");
+
+        const capRow = rows.find(r => r.capitalZh || r.capitalEn);
+        if (capRow) {
+            const zh = capRow.capitalZh?.value;
+            const en = capRow.capitalEn?.value;
+            $("capital").textContent = [zh, en].filter(Boolean).join(" · ") || $("capital").textContent;
+        }
+
+        const peakRows = rows.filter(r => r.peak?.value);
+        if (!peakRows.length) throw new Error("No peak");
+        peakRows.sort((a,b) => (+(b.elevation?.value || 0)) - (+(a.elevation?.value || 0)));
+        const r = peakRows[0];
+        const elevation = +(r.elevation?.value || NaN);
+        const names = [r.peakZh?.value, r.peakEn?.value].filter(Boolean);
+        $("peak").textContent =
+            `${names.join(" · ") || "國家最高點"}${Number.isFinite(elevation) ? ` · ${fmtInt.format(elevation)} m` : ""}`;
+        $("peakNote").textContent = "Wikidata：最高點與海拔";
+    } catch (err) {
+        console.warn("Peak", err);
+        $("peak").textContent = "資料暫缺";
+        $("peakNote").textContent = "Wikidata 暫時未取得可用的最高點資料";
+    } finally {
+        $("peak").classList.remove("loading");
+    }
 }
 
 async function getFX(from, to="TWD") {
@@ -748,115 +893,214 @@ async function getFX(from, to="TWD") {
     fxCache.set(key,rate); return rate;
 }
 
-async function fetchIloRows() {
-    if(iloPromise) return iloPromise;
-    iloPromise=(async()=>{
-        const res=await fetch(URLS.ilo);
-        if(!res.ok) throw new Error(`ILO ${res.status}`);
-        const ct=res.headers.get("content-type")||"";
-        if(ct.includes("json")) {
-            const j=await res.json();
-            return Array.isArray(j) ? j : (j.data || j.results || []);
-        }
-        const buf=await res.arrayBuffer();
-        let text;
-        // Endpoint may return gzip even without .gz.
-        const bytes=new Uint8Array(buf);
-        if(bytes[0]===0x1f && bytes[1]===0x8b && "DecompressionStream" in window) {
-            const ds=new DecompressionStream("gzip");
-            text=await new Response(new Blob([buf]).stream().pipeThrough(ds)).text();
-        } else text=new TextDecoder().decode(buf);
-        return d3.csvParse(text);
-    })();
-    return iloPromise;
+async function fetchIloSalaryRows(c) {
+    const params = new URLSearchParams({
+        id: "EAR_4MTH_SEX_CUR_NB_A",
+        ref_area: c.cca3,
+        sex: "SEX_T",
+        classif1: "CUR_TYPE_USD",
+        latestyear: "TRUE",
+        type: "code",
+        format: ".csv"
+    });
+    const res = await fetch(`${URLS.ilo}?${params.toString()}`);
+    if (!res.ok) throw new Error(`ILOSTAT ${res.status}`);
+    const text = await res.text();
+    return d3.csvParse(text);
 }
 
 function pickField(obj, candidates) {
-    const keys=Object.keys(obj || {});
-    for(const c of candidates) {
-        const k=keys.find(k=>k.toLowerCase()===c.toLowerCase());
-        if(k) return k;
+    const keys = Object.keys(obj || {});
+    for (const c of candidates) {
+        const k = keys.find(k => k.toLowerCase() === c.toLowerCase());
+        if (k) return k;
     }
     return null;
 }
 
 async function loadSalary(c) {
+    const override = COUNTRY_OVERRIDES[c.cca3];
+    if (override?.salaryTwd) {
+        $("salary").textContent = `NT$ ${fmtInt.format(override.salaryTwd)}`;
+        $("salaryNote").textContent = `行政院主計總處 · ${override.salaryYear} 工業及服務業總薪資平均`;
+        $("salary").classList.remove("loading");
+        return;
+    }
+
+    if (salaryCache.has(c.cca3)) {
+        const r = salaryCache.get(c.cca3);
+        $("salary").textContent = `NT$ ${fmtInt.format(r.twd)}`;
+        $("salaryNote").textContent = `ILOSTAT ${r.year} · 平均月薪；美元換算 TWD`;
+        $("salary").classList.remove("loading");
+        return;
+    }
+
     try {
-        const rows=await fetchIloRows();
-        if(!rows?.length) throw new Error("No ILO rows");
-        const sample=rows[0];
-        const refK=pickField(sample,["ref_area","refArea","country_code"]);
-        const timeK=pickField(sample,["time","year"]);
-        const valK=pickField(sample,["obs_value","value"]);
-        const sexK=pickField(sample,["sex"]);
-        const currK=pickField(sample,["classif1","currency"]);
-        if(!refK || !timeK || !valK) throw new Error("Unexpected ILO schema");
-
-        let r=rows.filter(x=>String(x[refK]).toUpperCase()===c.cca3);
-        if(sexK) {
-            const total=r.filter(x=>/SEX_T|TOTAL|^T$/i.test(String(x[sexK]||"")));
-            if(total.length) r=total;
+        let rows = await fetchIloSalaryRows(c);
+        if (!rows?.length) {
+            // Retry without forcing the USD classification; some countries only expose local currency.
+            const params = new URLSearchParams({
+                id: "EAR_4MTH_SEX_CUR_NB_A",
+                ref_area: c.cca3,
+                sex: "SEX_T",
+                latestyear: "TRUE",
+                type: "code",
+                format: ".csv"
+            });
+            const res = await fetch(`${URLS.ilo}?${params.toString()}`);
+            if (!res.ok) throw new Error(`ILOSTAT ${res.status}`);
+            rows = d3.csvParse(await res.text());
         }
-        if(!r.length) throw new Error("No country wage");
-        r.sort((a,b)=>String(a[timeK]).localeCompare(String(b[timeK])));
-        const latestYear=r.at(-1)[timeK];
-        r=r.filter(x=>x[timeK]===latestYear);
+        if (!rows?.length) throw new Error("No ILO wage rows");
 
-        // Prefer overall currency classification and local currency if code can be inferred.
-        let best=r.find(x=>/CUR_TYPE_LCU|LOCAL/i.test(String(x[currK]||""))) || r[0];
-        const value=+best[valK];
-        if(!Number.isFinite(value)) throw new Error("Bad wage");
+        const sample = rows[0];
+        const refK = pickField(sample, ["ref_area", "ref_area.label", "refArea", "country_code"]);
+        const timeK = pickField(sample, ["time", "year"]);
+        const valK = pickField(sample, ["obs_value", "value"]);
+        const clsK = pickField(sample, ["classif1", "currency"]);
+        if (!timeK || !valK) throw new Error("Unexpected ILO schema");
 
-        const currencyCode=Object.keys(c.currencies||{})[0];
-        if(!currencyCode) throw new Error("No currency");
-        const rate=currencyCode==="TWD" ? 1 : await getFX(currencyCode,"TWD");
-        const twd=value*rate;
-        $("salary").textContent=`NT$ ${fmtInt.format(twd)}`;
-        $("salaryNote").textContent=`ILOSTAT ${latestYear}：${fmtInt.format(value)} ${currencyCode}／月；以目前匯率約換算為 TWD`;
-    } catch(err) {
-        console.warn("Salary",err);
-        $("salary").textContent="資料暫缺";
-        $("salaryNote").textContent="ILOSTAT 此國家可能無一致可比的最新平均月薪，或瀏覽器無法直接讀取其壓縮資料";
-    } finally { $("salary").classList.remove("loading"); }
+        let rr = rows.filter(r => !refK || String(r[refK]).toUpperCase() === c.cca3 || rows.length < 20);
+        rr = rr.filter(r => Number.isFinite(+r[valK]));
+        if (!rr.length) throw new Error("No usable wage values");
+        rr.sort((a,b) => (+a[timeK] || 0) - (+b[timeK] || 0));
+        const latestYear = rr.at(-1)[timeK];
+        rr = rr.filter(r => String(r[timeK]) === String(latestYear));
+
+        let best = rr.find(r => /USD/i.test(String(r[clsK] || ""))) || rr[0];
+        let value = +best[valK];
+        if (!Number.isFinite(value)) throw new Error("Bad wage value");
+
+        let twd;
+        const cls = String(best[clsK] || "");
+        if (/USD/i.test(cls)) {
+            twd = value * await getFX("USD", "TWD");
+        } else {
+            const localCode = Object.keys(c.currencies || {})[0];
+            if (!localCode) throw new Error("Unknown local currency");
+            twd = value * (localCode === "TWD" ? 1 : await getFX(localCode, "TWD"));
+        }
+
+        salaryCache.set(c.cca3, { twd, year: latestYear });
+        $("salary").textContent = `NT$ ${fmtInt.format(twd)}`;
+        $("salaryNote").textContent = `ILOSTAT ${latestYear} · 平均月薪；依可用幣別換算 TWD`;
+    } catch (err) {
+        console.warn("Salary", err);
+        $("salary").textContent = "資料暫缺";
+        $("salaryNote").textContent = "ILOSTAT 此國家目前沒有可直接比較的平均月薪資料";
+    } finally {
+        $("salary").classList.remove("loading");
+    }
 }
 
-async function fetchTempRows() {
-    if(tempPromise) return tempPromise;
-    tempPromise=d3.csv(URLS.temp);
-    return tempPromise;
-}
 function mean(arr) {
-    const v=arr.filter(Number.isFinite);
+    const v = arr.filter(Number.isFinite);
     return v.length ? d3.mean(v) : null;
 }
-async function loadTemperature(c) {
-    try {
-        const rows=await fetchTempRows();
-        const sample=rows[0]||{};
-        const tempK=Object.keys(sample).find(k=>/temperature/i.test(k) && !["Entity","Code","Day","Year"].includes(k))
-                  || Object.keys(sample).find(k=>!["Entity","Code","Day","Year"].includes(k));
-        const dateK=Object.keys(sample).find(k=>["day","date"].includes(k.toLowerCase()));
-        if(!tempK || !dateK) throw new Error("Temp schema");
-        const rr=rows.filter(r=>r.Code===c.cca3).map(r=>({date:new Date(r[dateK]),t:+r[tempK]}))
-            .filter(r=>Number.isFinite(r.t) && r.date.getUTCFullYear()>=1991 && r.date.getUTCFullYear()<=2020);
-        if(!rr.length) throw new Error("No temp");
 
-        const byMonth=d3.rollup(rr,v=>d3.mean(v,d=>d.t),d=>d.date.getUTCMonth()+1);
-        const south=(c.latlng?.[0]||0)<0;
-        const seasons=south
-            ? {spring:[9,10,11],summer:[12,1,2],autumn:[3,4,5],winter:[6,7,8]}
-            : {spring:[3,4,5],summer:[6,7,8],autumn:[9,10,11],winter:[12,1,2]};
-        for(const [id,months] of Object.entries(seasons)) {
-            const v=mean(months.map(m=>byMonth.get(m)));
-            $(id).textContent=v==null ? "—" : `${fmt1.format(v)}°C`;
+function showSeasonTemps(monthly, south, note) {
+    const seasons = south
+        ? { spring:[9,10,11], summer:[12,1,2], autumn:[3,4,5], winter:[6,7,8] }
+        : { spring:[3,4,5], summer:[6,7,8], autumn:[9,10,11], winter:[12,1,2] };
+
+    for (const [id, months] of Object.entries(seasons)) {
+        const v = mean(months.map(m => monthly.get(m)));
+        $(id).textContent = v == null ? "—" : `${fmt1.format(v)}°C`;
+    }
+    $("tempNote").textContent = note;
+}
+
+async function loadTemperatureFromOwid(c) {
+    const params = new URLSearchParams({
+        tab: "table",
+        time: "1991-01-15..2020-12-15",
+        country: `~${c.cca3}`,
+        csvType: "filtered",
+        useColumnShortNames: "false"
+    });
+    const rows = await d3.csv(`${URLS.tempBase}?${params.toString()}`);
+    if (!rows?.length) throw new Error("OWID temperature empty");
+
+    const sample = rows[0];
+    const tempK = Object.keys(sample).find(k => /temperature/i.test(k) && !["Entity","Code","Day","Year"].includes(k))
+        || Object.keys(sample).find(k => !["Entity","Code","Day","Year"].includes(k));
+    const dateK = Object.keys(sample).find(k => ["day","date"].includes(k.toLowerCase()));
+    if (!tempK || !dateK) throw new Error("OWID temperature schema");
+
+    const rr = rows
+        .filter(r => !r.Code || r.Code === c.cca3)
+        .map(r => ({ date: new Date(r[dateK]), t: +r[tempK] }))
+        .filter(r => Number.isFinite(r.t) && !Number.isNaN(r.date.getTime()));
+
+    if (!rr.length) throw new Error("No OWID country temperature");
+
+    const byMonth = d3.rollup(rr, v => d3.mean(v, d => d.t), d => d.date.getUTCMonth() + 1);
+    if (byMonth.size < 10) throw new Error("Incomplete OWID monthly climate");
+
+    const south = (c.latlng?.[0] || 0) < 0;
+    showSeasonTemps(
+        byMonth,
+        south,
+        `ERA5 / OWID 1991–2020 國土平均地表氣溫 · ${south ? "南半球" : "北半球"}氣象季節`
+    );
+}
+
+async function loadTemperatureFromNasa(c) {
+    const lat = +(c.latlng?.[0]);
+    const lon = +(c.latlng?.[1]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("No coordinates");
+
+    const params = new URLSearchParams({
+        parameters: "T2M",
+        community: "AG",
+        longitude: lon,
+        latitude: lat,
+        format: "JSON"
+    });
+
+    const res = await fetch(`${URLS.nasaPower}?${params.toString()}`);
+    if (!res.ok) throw new Error(`NASA POWER ${res.status}`);
+    const data = await res.json();
+    const values = data?.properties?.parameter?.T2M;
+    if (!values) throw new Error("NASA POWER no T2M");
+
+    const monthly = new Map();
+    const monthKeys = [
+        ["JAN",1],["FEB",2],["MAR",3],["APR",4],["MAY",5],["JUN",6],
+        ["JUL",7],["AUG",8],["SEP",9],["OCT",10],["NOV",11],["DEC",12]
+    ];
+    for (const [k,m] of monthKeys) {
+        const v = +values[k];
+        if (Number.isFinite(v) && v > -90) monthly.set(m, v);
+    }
+    if (monthly.size < 10) throw new Error("NASA POWER incomplete climatology");
+
+    const south = lat < 0;
+    showSeasonTemps(
+        monthly,
+        south,
+        `NASA POWER 氣候平均 · 以國家代表座標 (${lat.toFixed(1)}°, ${lon.toFixed(1)}°) 為備援；非全國面積平均`
+    );
+}
+
+async function loadTemperature(c) {
+    if (tempCache.has(c.cca3)) {
+        const cached = tempCache.get(c.cca3);
+        showSeasonTemps(cached.monthly, cached.south, cached.note);
+        return;
+    }
+
+    try {
+        await loadTemperatureFromOwid(c);
+    } catch (err) {
+        console.warn("OWID Temp fallback to NASA POWER", err);
+        try {
+            await loadTemperatureFromNasa(c);
+        } catch (err2) {
+            console.warn("NASA Temp", err2);
+            ["spring","summer","autumn","winter"].forEach(id => $(id).textContent = "—");
+            $("tempNote").textContent = "目前無法取得此國家的氣候均溫資料";
         }
-        const lat=c.latlng?.[0];
-        const hemi=south?"南半球":"北半球";
-        $("tempNote").textContent=`ERA5 1991–2020 國土平均地表氣溫；依${hemi}氣象季節分組${Math.abs(lat||0)<10 ? "（近赤道地區四季概念僅供比較）":""}`;
-    } catch(err) {
-        console.warn("Temp",err);
-        ["spring","summer","autumn","winter"].forEach(id=>$(id).textContent="—");
-        $("tempNote").textContent="此國家的 ERA5／OWID 月均溫資料暫時無法取得";
     }
 }
 
