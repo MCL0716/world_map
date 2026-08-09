@@ -1,0 +1,868 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>世界發展互動地圖｜HDI World Explorer</title>
+<meta name="description" content="以人類發展指數（HDI）著色的互動世界地圖，點擊國家查看人口、語言、貨幣、薪資、首都、最高峰與四季均溫。" />
+<style>
+    :root {
+        color-scheme: dark;
+        --bg: #08111f;
+        --panel: rgba(10, 21, 37, .95);
+        --panel2: rgba(16, 30, 49, .92);
+        --line: rgba(255,255,255,.17);
+        --text: #eef5ff;
+        --muted: #9db0c8;
+        --accent: #7dd3fc;
+        --shadow: 0 20px 60px rgba(0,0,0,.42);
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+        overflow: hidden;
+        font-family: Inter, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+        background:
+            radial-gradient(circle at 30% 15%, rgba(43,92,140,.20), transparent 32%),
+            var(--bg);
+        color: var(--text);
+    }
+    #app { height: 100%; display: grid; grid-template-rows: auto 1fr; }
+    header {
+        z-index: 20;
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 18px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(5,13,24,.86);
+        backdrop-filter: blur(16px);
+    }
+    .brand { min-width: 260px; }
+    .brand h1 { margin: 0; font-size: clamp(18px, 2vw, 26px); letter-spacing: .02em; }
+    .brand p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+    .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+    .search-wrap { position: relative; }
+    input, button {
+        height: 38px;
+        border: 1px solid var(--line);
+        border-radius: 11px;
+        color: var(--text);
+        background: rgba(255,255,255,.06);
+        outline: none;
+    }
+    input { width: min(280px, 40vw); padding: 0 12px; }
+    input:focus { border-color: rgba(125,211,252,.7); box-shadow: 0 0 0 3px rgba(125,211,252,.1); }
+    button { cursor: pointer; padding: 0 13px; }
+    button:hover { background: rgba(255,255,255,.11); }
+    main { position: relative; min-height: 0; }
+    #map { width: 100%; height: 100%; display: block; cursor: grab; }
+    #map:active { cursor: grabbing; }
+    .country {
+        vector-effect: non-scaling-stroke;
+        stroke: rgba(240,248,255,.72);
+        stroke-width: .55px;
+        transition: filter .12s ease, opacity .12s ease;
+    }
+    .country:hover {
+        stroke: #fff;
+        stroke-width: 1.1px;
+        filter: brightness(1.18);
+    }
+    .country.selected { stroke: #fff; stroke-width: 1.8px; filter: drop-shadow(0 0 5px rgba(255,255,255,.4)); }
+    .sphere { fill: #071625 !important; stroke: rgba(255,255,255,.12); stroke-width: 1; }
+    .graticule { fill: none; stroke: rgba(255,255,255,.055); stroke-width: .5px; pointer-events: none; }
+    .legend, .status {
+        position: absolute; z-index: 8;
+        border: 1px solid var(--line);
+        background: rgba(7,17,30,.82);
+        backdrop-filter: blur(12px);
+        box-shadow: var(--shadow);
+    }
+    .legend { left: 16px; bottom: 16px; width: 270px; border-radius: 14px; padding: 12px; }
+    .legend-title { font-size: 12px; color: var(--muted); margin-bottom: 8px; display:flex; justify-content:space-between; gap:10px; }
+    .gradient {
+        height: 10px; border-radius: 999px;
+        background: linear-gradient(90deg,#7f1d1d,#b45309,#ca8a04,#65a30d,#059669,#0284c7,#7c3aed);
+        border: 1px solid rgba(255,255,255,.15);
+    }
+    .ticks { display:flex; justify-content:space-between; font-size:10px; color:#a9bdd4; margin-top:5px; }
+    .legend-note { margin-top:8px; font-size:10px; line-height:1.45; color:#7f95ad; }
+    .status { top: 12px; left: 16px; border-radius: 999px; padding: 8px 11px; font-size: 11px; color: var(--muted); }
+    .status b { color: #d9efff; font-weight: 600; }
+    .tooltip {
+        position: fixed; z-index: 50; pointer-events:none;
+        transform: translate(12px,12px);
+        padding: 8px 10px; border-radius: 10px;
+        background: rgba(4,10,18,.93);
+        border: 1px solid var(--line);
+        box-shadow: 0 10px 30px rgba(0,0,0,.35);
+        opacity:0; transition: opacity .08s;
+        font-size:12px;
+    }
+    .tooltip strong { display:block; margin-bottom:2px; }
+    .tooltip span { color:var(--muted); }
+    #info {
+        position:absolute; z-index: 30;
+        top: 14px; right: 14px; bottom: 14px;
+        width:min(430px, calc(100vw - 28px));
+        border-radius: 20px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        backdrop-filter: blur(22px);
+        box-shadow: var(--shadow);
+        transform: translateX(calc(100% + 30px));
+        transition: transform .25s cubic-bezier(.2,.8,.2,1);
+        overflow:hidden;
+        display:flex; flex-direction:column;
+    }
+    #info.open { transform: translateX(0); }
+    .info-head {
+        position:relative; padding:18px 52px 14px 18px;
+        background: linear-gradient(140deg,rgba(255,255,255,.08),rgba(255,255,255,.01));
+        border-bottom:1px solid var(--line);
+    }
+    #close {
+        position:absolute; right:12px; top:12px; width:34px; height:34px; padding:0; font-size:20px;
+        border-radius:50%;
+    }
+    .country-title { display:flex; align-items:center; gap:12px; }
+    .flag {
+        width:62px; height:42px; border-radius:8px;
+        border:1px solid rgba(255,255,255,.18);
+        background:rgba(255,255,255,.055);
+        display:grid; place-items:center;
+        font-size:33px; line-height:1;
+        overflow:hidden;
+    }
+    .country-title h2 { margin:0; font-size:23px; }
+    .country-title .en { color:var(--muted); font-size:13px; margin-top:3px; }
+    .hdi-pill {
+        display:inline-flex; align-items:center; gap:6px;
+        margin-top:12px; border-radius:999px; padding:6px 9px;
+        background:rgba(125,211,252,.10); border:1px solid rgba(125,211,252,.22);
+        color:#cdefff; font-size:11px;
+    }
+    .info-body { overflow:auto; padding:14px 16px 22px; scrollbar-width: thin; }
+    .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .card {
+        min-width:0; padding:12px; border-radius:14px;
+        border:1px solid rgba(255,255,255,.09);
+        background:rgba(255,255,255,.035);
+    }
+    .card.wide { grid-column:1/-1; }
+    .label { color:var(--muted); font-size:10px; letter-spacing:.06em; text-transform:uppercase; margin-bottom:5px; }
+    .value { font-size:14px; line-height:1.45; word-break:break-word; }
+    .value.big { font-size:19px; font-weight:650; }
+    .sub { margin-top:4px; color:#8097b0; font-size:10px; line-height:1.45; }
+    .temp-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; margin-top:5px; }
+    .season { text-align:center; border-radius:11px; padding:9px 3px; background:rgba(255,255,255,.04); }
+    .season b { display:block; font-size:16px; margin-top:3px; }
+    .season span { color:var(--muted); font-size:10px; }
+    .loading::after {
+        content:""; display:inline-block; width:11px; height:11px; margin-left:6px;
+        border:2px solid rgba(255,255,255,.25); border-top-color:#fff; border-radius:50%;
+        animation:spin .7s linear infinite; vertical-align:-2px;
+    }
+    @keyframes spin { to { transform:rotate(360deg); } }
+    .sources { margin-top:14px; color:#7489a1; font-size:9.5px; line-height:1.55; }
+    .sources a { color:#8fb9d6; text-decoration:none; }
+    .error-banner {
+        display:none; margin:10px 16px 0; border-radius:12px; padding:9px 11px;
+        color:#ffd4d4; background:rgba(220,38,38,.12); border:1px solid rgba(248,113,113,.25);
+        font-size:11px; line-height:1.4;
+    }
+
+    .timeline {
+        position:absolute; z-index:9;
+        left:50%; bottom:16px; transform:translateX(-50%);
+        width:min(520px, calc(100vw - 330px));
+        min-width:280px;
+        border:1px solid var(--line);
+        background:rgba(7,17,30,.86);
+        backdrop-filter:blur(12px);
+        box-shadow:var(--shadow);
+        border-radius:16px;
+        padding:11px 13px;
+    }
+    .timeline-head {
+        display:flex; align-items:center; justify-content:space-between;
+        gap:12px; margin-bottom:7px;
+    }
+    .timeline-title { font-size:11px; color:var(--muted); }
+    .timeline-year { font-size:18px; font-weight:750; min-width:48px; text-align:right; }
+    .timeline-row { display:grid; grid-template-columns:34px 1fr; gap:10px; align-items:center; }
+    #play {
+        width:34px; height:34px; padding:0; border-radius:50%;
+        font-size:14px; line-height:1;
+    }
+    #yearSlider {
+        width:100%; height:6px; padding:0;
+        appearance:none; -webkit-appearance:none;
+        border:0; border-radius:999px;
+        background:linear-gradient(90deg,rgba(125,211,252,.38),rgba(124,58,237,.55));
+        cursor:pointer;
+    }
+    #yearSlider::-webkit-slider-thumb {
+        appearance:none; -webkit-appearance:none;
+        width:17px; height:17px; border-radius:50%;
+        background:#fff; border:2px solid #8bdcff;
+        box-shadow:0 0 0 4px rgba(125,211,252,.15);
+    }
+    #yearSlider::-moz-range-thumb {
+        width:17px; height:17px; border-radius:50%;
+        background:#fff; border:2px solid #8bdcff;
+        box-shadow:0 0 0 4px rgba(125,211,252,.15);
+    }
+    .timeline-foot {
+        margin-top:5px; display:flex; justify-content:space-between;
+        color:#7d92aa; font-size:9px;
+    }
+
+    @media (max-width: 720px) {
+        header { padding:10px 12px; align-items:flex-start; }
+        .brand { min-width: 0; }
+        .brand p { display:none; }
+        .controls { gap:6px; }
+        input { width:42vw; height:34px; }
+        button { height:34px; }
+        .legend { width:210px; left:9px; bottom:9px; }
+        .timeline {
+            left:auto; right:9px; transform:none;
+            width:min(48vw,330px); min-width:0; bottom:9px;
+        }
+        .status { left:9px; top:9px; }
+        #info {
+            top:auto; left:8px; right:8px; bottom:8px; width:auto; height:min(73vh,650px);
+            transform:translateY(calc(100% + 20px));
+        }
+        #info.open { transform:translateY(0); }
+        .grid { grid-template-columns:1fr 1fr; }
+    }
+</style>
+</head>
+<body>
+<div id="app">
+    <header>
+        <div class="brand">
+            <h1>世界發展互動地圖</h1>
+            <p>World Human Development Explorer · 點擊國家查看完整資訊</p>
+        </div>
+        <div class="controls">
+            <div class="search-wrap"><input id="search" autocomplete="off" placeholder="搜尋國家 / Search country…" /></div>
+            <button id="reset" title="回到世界視角">重設視角</button>
+        </div>
+    </header>
+    <main>
+        <svg id="map" aria-label="世界地圖"></svg>
+        <div class="status" id="status"><b>載入中</b> · 正在取得世界資料</div>
+        <div class="legend">
+            <div class="legend-title"><span>人類發展指數 HDI</span><span id="hdiYear">—</span></div>
+            <div class="gradient"></div>
+            <div class="ticks"><span>0.40</span><span>0.55</span><span>0.70</span><span>0.85</span><span>1.00</span></div>
+            <div class="legend-note">灰色表示最新 HDI 資料缺值。HDI 越高代表健康、教育與所得三項綜合發展程度越高。</div>
+        </div>
+
+        <div class="timeline">
+            <div class="timeline-head">
+                <div class="timeline-title">HDI 歷史演進</div>
+                <div class="timeline-year" id="yearValue">—</div>
+            </div>
+            <div class="timeline-row">
+                <button id="play" title="播放 HDI 年份演進">▶</button>
+                <input id="yearSlider" type="range" min="1990" max="2023" step="1" value="2023" aria-label="HDI 年份" />
+            </div>
+            <div class="timeline-foot"><span id="yearMin">1990</span><span>拖曳年份查看全球 HDI 變化</span><span id="yearMax">2023</span></div>
+        </div>
+
+        <aside id="info" aria-live="polite">
+            <div class="info-head">
+                <button id="close" aria-label="關閉">×</button>
+                <div class="country-title">
+                    <div class="flag" id="flag" role="img" aria-label="國旗">🌐</div>
+                    <div>
+                        <h2 id="nameZh">—</h2>
+                        <div class="en" id="nameEn">—</div>
+                    </div>
+                </div>
+                <div class="hdi-pill" id="hdiPill">HDI：—</div>
+            </div>
+            <div class="error-banner" id="errorBanner"></div>
+            <div class="info-body">
+                <div class="grid">
+                    <div class="card"><div class="label">國土面積</div><div class="value big" id="area">—</div><div class="sub">平方公里 km²</div></div>
+                    <div class="card"><div class="label">人口</div><div class="value big" id="population">—</div><div class="sub" id="populationNote">world-countries 資料集</div></div>
+                    <div class="card wide"><div class="label">使用語言</div><div class="value" id="languages">—</div></div>
+                    <div class="card"><div class="label">使用貨幣</div><div class="value" id="currency">—</div></div>
+                    <div class="card"><div class="label">首都</div><div class="value" id="capital">—</div></div>
+                    <div class="card wide">
+                        <div class="label">平均月薪（新台幣）</div>
+                        <div class="value big loading" id="salary">查詢中</div>
+                        <div class="sub" id="salaryNote">ILOSTAT 平均月薪；依資料年度與可用幣別換算</div>
+                    </div>
+                    <div class="card wide">
+                        <div class="label">最高峰 / 國家最高點</div>
+                        <div class="value big loading" id="peak">查詢中</div>
+                        <div class="sub" id="peakNote">Wikidata 結構化資料</div>
+                    </div>
+                    <div class="card wide">
+                        <div class="label">四季均溫</div>
+                        <div class="temp-grid">
+                            <div class="season"><span>春 Spring</span><b id="spring">—</b></div>
+                            <div class="season"><span>夏 Summer</span><b id="summer">—</b></div>
+                            <div class="season"><span>秋 Autumn</span><b id="autumn">—</b></div>
+                            <div class="season"><span>冬 Winter</span><b id="winter">—</b></div>
+                        </div>
+                        <div class="sub" id="tempNote">ERA5 國土平均地表氣溫；1991–2020 氣候平均</div>
+                    </div>
+                </div>
+                <div class="sources">
+                    資料來源：HDI — UNDP Human Development Reports / Our World in Data；國家基本資料 — world-countries（ISO 3166 開源資料集）；
+                    薪資 — ILOSTAT；最高點 — Wikidata；氣溫 — Copernicus ERA5 / Our World in Data。<br>
+                    注意：跨國薪資統計的調查範圍、稅前/稅後與資料年份可能不同；四季均溫為全國陸地平均，幅員大的國家不等同於首都氣候。
+                </div>
+            </div>
+        </aside>
+    </main>
+</div>
+<div id="tooltip" class="tooltip"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+<script>
+(() => {
+"use strict";
+
+const URLS = {
+    world: "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json",
+    countries: "https://cdn.jsdelivr.net/npm/world-countries@5.1.0/countries.json",
+    hdi: "https://ourworldindata.org/grapher/human-development-index.csv?v=1&csvType=full&useColumnShortNames=false",
+    temp: "https://ourworldindata.org/grapher/average-monthly-surface-temperature.csv?v=1&csvType=full&useColumnShortNames=false",
+    ilo: "https://rplumber.ilo.org/data/indicator/?id=EAR_4MTH_SEX_CUR_NB_A",
+    fx: "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/",
+    wikidata: "https://query.wikidata.org/sparql"
+};
+
+const fmtInt = new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 0 });
+const fmt1 = new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 1 });
+const $ = id => document.getElementById(id);
+
+const svg = d3.select("#map");
+const g = svg.append("g");
+const graticuleG = g.append("path").attr("class", "graticule");
+const sphereG = g.append("path").attr("class", "sphere");
+const countriesG = g.append("g");
+
+let width=0, height=0, worldFeatures=[], countryByNumeric=new Map(), countryByAlpha3=new Map();
+let hdiByCode=new Map(), hdiHistory=new Map(), hdiYears=[], selectedHdiYear=null, latestHdiYear=null, selectedPath=null, selectedCountry=null, playTimer=null;
+let tempPromise=null, iloPromise=null, fxCache=new Map();
+
+const projection = d3.geoNaturalEarth1();
+const path = d3.geoPath(projection);
+const zoom = d3.zoom().scaleExtent([1, 9]).on("zoom", e => g.attr("transform", e.transform));
+svg.call(zoom);
+
+const hdiColor = d3.scaleLinear()
+    .domain([0.40,0.55,0.70,0.85,1.0])
+    .range(["#7f1d1d","#b45309","#ca8a04","#059669","#7c3aed"])
+    .clamp(true);
+
+function resize() {
+    const r = $("map").getBoundingClientRect();
+    width=r.width; height=r.height;
+    svg.attr("viewBox", [0,0,width,height]);
+    projection.fitExtent([[12,12],[width-12,height-12]], {type:"Sphere"});
+    sphereG.attr("d", path({type:"Sphere"}));
+    graticuleG.attr("d", path(d3.geoGraticule10()));
+    countriesG.selectAll("path").attr("d", path);
+}
+window.addEventListener("resize", resize);
+
+function setStatus(text, strong="就緒") {
+    $("status").innerHTML = `<b>${strong}</b> · ${text}`;
+}
+function safe(v, fallback="—") { return (v===null || v===undefined || v==="") ? fallback : v; }
+function countryZh(c) {
+    return c?.translations?.zho?.common || c?.translations?.zho?.official || c?.name?.common || "—";
+}
+
+function countryForFeature(f) {
+    const numeric = String(f?.id ?? "").padStart(3, "0");
+    return countryByNumeric.get(numeric) || {
+        ccn3: numeric,
+        cca3: null,
+        cca2: null,
+        flag: "🌐",
+        name: { common: f?.properties?.name || "Unknown" },
+        translations: {},
+        population: null,
+        area: null,
+        capital: [],
+        languages: {},
+        currencies: {},
+        latlng: [0, 0]
+    };
+}
+function hdiLabel(v) {
+    if (v == null || Number.isNaN(v)) return "資料缺值";
+    if (v >= .8) return "非常高人類發展";
+    if (v >= .7) return "高人類發展";
+    if (v >= .55) return "中度人類發展";
+    return "低人類發展";
+}
+
+function closestHdiForYear(code, year) {
+    const series = hdiHistory.get(code);
+    if (!series) return null;
+    if (series.has(year)) return series.get(year);
+
+    // Some countries have gaps. Use the closest earlier value, never a future value.
+    const years = [...series.keys()].filter(y => y <= year).sort((a,b) => b-a);
+    return years.length ? series.get(years[0]) : null;
+}
+
+function applyHdiYear(year, animate=true) {
+    if (!Number.isFinite(+year)) return;
+    selectedHdiYear = +year;
+    hdiByCode = new Map();
+    for (const code of hdiHistory.keys()) {
+        const v = closestHdiForYear(code, selectedHdiYear);
+        if (v != null) hdiByCode.set(code, v);
+    }
+
+    $("yearValue").textContent = selectedHdiYear;
+    $("hdiYear").textContent = `${selectedHdiYear} 年`;
+
+    const sel = countriesG.selectAll("path");
+    const target = animate ? sel.transition().duration(240) : sel;
+    target.attr("fill", fillForFeature);
+
+    if (selectedCountry) {
+        const h = hdiByCode.get(selectedCountry.cca3);
+        $("hdiPill").textContent = `HDI：${h?.toFixed(3) ?? "—"}${h ? ` · ${hdiLabel(h)}` : ""} · ${selectedHdiYear}`;
+    }
+}
+
+function fillForFeature(f) {
+    const c = countryForFeature(f);
+    const h = c ? hdiByCode.get(c.cca3) : null;
+    return h == null ? "#3a4656" : hdiColor(h);
+}
+
+async function loadCountryMetadata() {
+    try {
+        const countries = await d3.json(URLS.countries);
+        if (!Array.isArray(countries)) throw new Error("Country dataset format error");
+
+        countryByNumeric.clear();
+        countryByAlpha3.clear();
+
+        countries.forEach(c => {
+            if (c.ccn3) countryByNumeric.set(String(c.ccn3).padStart(3, "0"), c);
+            if (c.cca3) countryByAlpha3.set(c.cca3, c);
+        });
+
+        // If HDI is already present, recolor now that numeric → alpha-3 mapping exists.
+        if (selectedHdiYear != null && hdiHistory.size) {
+            applyHdiYear(selectedHdiYear, true);
+        }
+
+        setStatus(`${worldFeatures.length} 個地理區域 · 國家資料完成 · ${selectedHdiYear ? `HDI ${selectedHdiYear}` : "HDI 載入中"}`);
+        return true;
+    } catch (err) {
+        console.error("Country metadata failed:", err);
+        setStatus("世界地圖已顯示；國家詳細資料來源暫時無法載入", "部分資料失敗");
+        return false;
+    }
+}
+
+async function loadHdiData() {
+    try {
+        const hdiRows = await d3.csv(URLS.hdi);
+        const validHdiRows = hdiRows.filter(r => r.Code && Number.isFinite(+r.Year));
+        if (!validHdiRows.length) throw new Error("HDI dataset is empty");
+
+        const hdiKey =
+            Object.keys(validHdiRows[0]).find(k => /human development index/i.test(k)) ||
+            Object.keys(validHdiRows[0]).find(k => !["Entity", "Code", "Year"].includes(k));
+
+        hdiHistory.clear();
+
+        for (const r of validHdiRows) {
+            const val = +(r[hdiKey]);
+            const year = +r.Year;
+            if (!Number.isFinite(val)) continue;
+            if (!hdiHistory.has(r.Code)) hdiHistory.set(r.Code, new Map());
+            hdiHistory.get(r.Code).set(year, val);
+        }
+
+        hdiYears = [...new Set(validHdiRows.map(r => +r.Year))]
+            .filter(Number.isFinite)
+            .sort((a, b) => a - b);
+
+        latestHdiYear = hdiYears.at(-1);
+        if (!latestHdiYear) throw new Error("No HDI years found");
+
+        selectedHdiYear = latestHdiYear;
+        $("yearSlider").min = hdiYears[0];
+        $("yearSlider").max = latestHdiYear;
+        $("yearSlider").value = latestHdiYear;
+        $("yearMin").textContent = hdiYears[0];
+        $("yearMax").textContent = latestHdiYear;
+        $("yearValue").textContent = latestHdiYear;
+        $("yearSlider").disabled = false;
+        $("play").disabled = false;
+
+        applyHdiYear(latestHdiYear, true);
+        setStatus(`${worldFeatures.length} 個地理區域 · HDI ${latestHdiYear} · 拖曳年份查看歷史變化`);
+        return true;
+    } catch (err) {
+        console.error("HDI failed:", err);
+        $("yearValue").textContent = "—";
+        $("hdiYear").textContent = "資料暫缺";
+        $("yearSlider").disabled = true;
+        $("play").disabled = true;
+        setStatus("世界地圖已顯示；HDI 資料目前無法取得", "HDI 載入失敗");
+        return false;
+    }
+}
+
+async function loadBaseData() {
+    $("yearSlider").disabled = true;
+    $("play").disabled = true;
+
+    // Critical path: render geography first. Auxiliary datasets must never block the map.
+    try {
+        setStatus("正在載入世界國界…", "載入中");
+        const world = await d3.json(URLS.world);
+        worldFeatures = topojson.feature(world, world.objects.countries).features;
+
+        drawCountries();
+        resize();
+        setStatus(`${worldFeatures.length} 個地理區域 · 正在載入 HDI 與國家資料…`, "地圖完成");
+    } catch (err) {
+        console.error("World geometry failed:", err);
+        setStatus("世界國界資料無法取得，請稍後重新整理", "地圖載入失敗");
+        $("errorBanner").style.display = "block";
+        $("errorBanner").textContent =
+            "世界地圖幾何資料載入失敗。這通常是 CDN 暫時無法連線；請稍後重新整理頁面。";
+        return;
+    }
+
+    // Non-critical paths: independent, so one failure doesn't blank the map.
+    const results = await Promise.allSettled([
+        loadCountryMetadata(),
+        loadHdiData()
+    ]);
+
+    const failed = results.filter(r => r.status === "rejected");
+    if (failed.length) console.warn("Some auxiliary datasets failed:", failed);
+}
+
+function drawCountries() {
+    countriesG.selectAll("path")
+        .data(worldFeatures)
+        .join("path")
+        .attr("class","country")
+        .attr("d",path)
+        .attr("fill",fillForFeature)
+        .on("mousemove", (event,d) => {
+            const c = countryForFeature(d);
+            const h = c ? hdiByCode.get(c.cca3) : null;
+            const tip=$("tooltip");
+            const yearText = selectedHdiYear ?? "—";
+            tip.innerHTML=`<strong>${countryZh(c)} · ${c.name.common}</strong><span>HDI ${yearText}：${h?.toFixed(3) ?? "—"} ${h ? "· "+hdiLabel(h) : ""}</span>`;
+            tip.style.left=event.clientX+"px"; tip.style.top=event.clientY+"px"; tip.style.opacity=1;
+        })
+        .on("mouseleave", () => $("tooltip").style.opacity=0)
+        .on("click", (event,d) => {
+            event.stopPropagation();
+            const c = countryForFeature(d);
+            openCountry(c, event.currentTarget);
+        });
+
+    svg.on("click", () => {});
+}
+
+async function openCountry(c, node) {
+    selectedCountry=c;
+    if (selectedPath) d3.select(selectedPath).classed("selected",false);
+    selectedPath=node; d3.select(node).classed("selected",true);
+
+    $("nameZh").textContent=countryZh(c);
+    $("nameEn").textContent=c.name.common;
+    $("flag").textContent = c.flag || "🌐";
+    $("flag").setAttribute("aria-label", `${countryZh(c)}國旗`);
+    const h=hdiByCode.get(c.cca3);
+    $("hdiPill").textContent=`HDI：${h?.toFixed(3) ?? "—"}${h ? ` · ${hdiLabel(h)}` : ""} · ${selectedHdiYear}`;
+    $("area").textContent = Number.isFinite(+c.area) ? fmtInt.format(+c.area) : "—";
+    $("population").textContent = Number.isFinite(+c.population) ? fmtInt.format(+c.population) : "—";
+
+    const langs=Object.values(c.languages || {});
+    $("languages").textContent=langs.length ? langs.join("、") : "—";
+
+    const currencies=Object.entries(c.currencies || {});
+    $("currency").textContent=currencies.length
+        ? currencies.map(([code,v]) => `${v.name || code}（${code}${v.symbol ? ` · ${v.symbol}`:""}）`).join("、")
+        : "—";
+
+    const capZh = c.capital?.length ? c.capital.join("、") : "—";
+    $("capital").textContent=capZh;
+
+    ["salary","peak"].forEach(id => { $(id).classList.add("loading"); $(id).textContent="查詢中"; });
+    ["spring","summer","autumn","winter"].forEach(id => $(id).textContent="…");
+    $("salaryNote").textContent="ILOSTAT 平均月薪；依資料年度與可用幣別換算";
+    $("peakNote").textContent="Wikidata 結構化資料";
+    $("tempNote").textContent="ERA5 國土平均地表氣溫；1991–2020 氣候平均";
+    $("errorBanner").style.display="none";
+    $("info").classList.add("open");
+
+    if (!c.cca3) {
+        ["salary", "peak"].forEach(id => {
+            $(id).classList.remove("loading");
+            $(id).textContent = "國家資料載入中";
+        });
+        ["spring","summer","autumn","winter"].forEach(id => $(id).textContent = "—");
+        $("salaryNote").textContent = "請稍後再點一次此國家";
+        $("peakNote").textContent = "請稍後再點一次此國家";
+        $("tempNote").textContent = "請稍後再點一次此國家";
+        return;
+    }
+
+    Promise.allSettled([
+        loadSalary(c),
+        loadPeak(c),
+        loadTemperature(c)
+    ]).then(results => {
+        const failed=results.filter(r=>r.status==="rejected");
+        if (failed.length) console.warn("部分延伸資料查詢失敗",failed);
+    });
+}
+
+$("close").onclick=() => {
+    $("info").classList.remove("open");
+    if(selectedPath) d3.select(selectedPath).classed("selected",false);
+    selectedPath=null;
+};
+$("reset").onclick=() => svg.transition().duration(650).call(zoom.transform,d3.zoomIdentity);
+
+
+$("yearSlider").addEventListener("input", e => {
+    applyHdiYear(+e.target.value, true);
+});
+
+$("play").addEventListener("click", () => {
+    if (playTimer) {
+        clearInterval(playTimer);
+        playTimer = null;
+        $("play").textContent = "▶";
+        $("play").title = "播放 HDI 年份演進";
+        return;
+    }
+
+    $("play").textContent = "Ⅱ";
+    $("play").title = "暫停";
+    let index = Math.max(0, hdiYears.indexOf(selectedHdiYear));
+    if (index >= hdiYears.length - 1) index = -1;
+
+    playTimer = setInterval(() => {
+        index++;
+        if (index >= hdiYears.length) {
+            clearInterval(playTimer);
+            playTimer = null;
+            $("play").textContent = "▶";
+            $("play").title = "播放 HDI 年份演進";
+            return;
+        }
+        const year = hdiYears[index];
+        $("yearSlider").value = year;
+        applyHdiYear(year, true);
+    }, 520);
+});
+
+$("search").addEventListener("keydown", e => {
+    if(e.key!=="Enter") return;
+    const q=e.target.value.trim().toLowerCase();
+    if(!q) return;
+    if (!countryByAlpha3.size) {
+        setStatus("國家索引仍在載入，請稍後再搜尋", "搜尋");
+        return;
+    }
+    const c=[...countryByAlpha3.values()].find(c =>
+        c.name.common.toLowerCase().includes(q) ||
+        c.name.official.toLowerCase().includes(q) ||
+        countryZh(c).includes(e.target.value.trim()) ||
+        c.cca3.toLowerCase()===q
+    );
+    if(!c) { setStatus(`找不到「${e.target.value.trim()}」`,"搜尋"); return; }
+    const f=worldFeatures.find(f=>String(f.id).padStart(3,"0")===String(c.ccn3).padStart(3,"0"));
+    if(!f) { openCountry(c,null); return; }
+
+    // zoom to country bounds
+    const [[x0,y0],[x1,y1]]=path.bounds(f);
+    const dx=x1-x0, dy=y1-y0, cx=(x0+x1)/2, cy=(y0+y1)/2;
+    const scale=Math.max(1,Math.min(7,.78/Math.max(dx/width,dy/height)));
+    const transform=d3.zoomIdentity.translate(width/2,height/2).scale(scale).translate(-cx,-cy);
+    svg.transition().duration(700).call(zoom.transform,transform);
+    const node=countriesG.selectAll("path").filter(d=>d===f).node();
+    openCountry(c,node);
+});
+
+async function loadPeak(c) {
+    const query = `
+SELECT ?peak ?peakLabel ?elevation WHERE {
+  ?country wdt:P298 "${c.cca3}".
+  ?country wdt:P610 ?peak.
+  OPTIONAL { ?peak wdt:P2044 ?elevation. }
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "zh-tw,zh,en". }
+} LIMIT 5`;
+    const url=URLS.wikidata+"?format=json&query="+encodeURIComponent(query);
+    try {
+        const res=await fetch(url,{headers:{"Accept":"application/sparql-results+json"}});
+        if(!res.ok) throw new Error(`Wikidata ${res.status}`);
+        const data=await res.json();
+        const rows=data.results?.bindings || [];
+        if(!rows.length) throw new Error("No peak");
+        rows.sort((a,b)=>(+(b.elevation?.value||0))-(+(a.elevation?.value||0)));
+        const r=rows[0];
+        const elevation=+(r.elevation?.value||NaN);
+        $("peak").textContent=`${r.peakLabel?.value || "國家最高點"}${Number.isFinite(elevation) ? ` · ${fmtInt.format(elevation)} m` : ""}`;
+        $("peakNote").textContent=Number.isFinite(elevation) ? "Wikidata：最高點與海拔" : "Wikidata：最高點（海拔資料缺值）";
+    } catch(err) {
+        console.warn("Peak",err);
+        $("peak").textContent="資料暫缺";
+        $("peakNote").textContent="此國家在 Wikidata 未取得可用的最高點結構化資料";
+    } finally { $("peak").classList.remove("loading"); }
+}
+
+async function getFX(from, to="TWD") {
+    from=from.toLowerCase(); to=to.toLowerCase();
+    const key=`${from}_${to}`;
+    if(fxCache.has(key)) return fxCache.get(key);
+    const res=await fetch(`${URLS.fx}${from}.json`);
+    if(!res.ok) throw new Error("FX");
+    const data=await res.json();
+    const rate=data[from]?.[to];
+    if(!rate) throw new Error(`No FX ${from}/${to}`);
+    fxCache.set(key,rate); return rate;
+}
+
+async function fetchIloRows() {
+    if(iloPromise) return iloPromise;
+    iloPromise=(async()=>{
+        const res=await fetch(URLS.ilo);
+        if(!res.ok) throw new Error(`ILO ${res.status}`);
+        const ct=res.headers.get("content-type")||"";
+        if(ct.includes("json")) {
+            const j=await res.json();
+            return Array.isArray(j) ? j : (j.data || j.results || []);
+        }
+        const buf=await res.arrayBuffer();
+        let text;
+        // Endpoint may return gzip even without .gz.
+        const bytes=new Uint8Array(buf);
+        if(bytes[0]===0x1f && bytes[1]===0x8b && "DecompressionStream" in window) {
+            const ds=new DecompressionStream("gzip");
+            text=await new Response(new Blob([buf]).stream().pipeThrough(ds)).text();
+        } else text=new TextDecoder().decode(buf);
+        return d3.csvParse(text);
+    })();
+    return iloPromise;
+}
+
+function pickField(obj, candidates) {
+    const keys=Object.keys(obj || {});
+    for(const c of candidates) {
+        const k=keys.find(k=>k.toLowerCase()===c.toLowerCase());
+        if(k) return k;
+    }
+    return null;
+}
+
+async function loadSalary(c) {
+    try {
+        const rows=await fetchIloRows();
+        if(!rows?.length) throw new Error("No ILO rows");
+        const sample=rows[0];
+        const refK=pickField(sample,["ref_area","refArea","country_code"]);
+        const timeK=pickField(sample,["time","year"]);
+        const valK=pickField(sample,["obs_value","value"]);
+        const sexK=pickField(sample,["sex"]);
+        const currK=pickField(sample,["classif1","currency"]);
+        if(!refK || !timeK || !valK) throw new Error("Unexpected ILO schema");
+
+        let r=rows.filter(x=>String(x[refK]).toUpperCase()===c.cca3);
+        if(sexK) {
+            const total=r.filter(x=>/SEX_T|TOTAL|^T$/i.test(String(x[sexK]||"")));
+            if(total.length) r=total;
+        }
+        if(!r.length) throw new Error("No country wage");
+        r.sort((a,b)=>String(a[timeK]).localeCompare(String(b[timeK])));
+        const latestYear=r.at(-1)[timeK];
+        r=r.filter(x=>x[timeK]===latestYear);
+
+        // Prefer overall currency classification and local currency if code can be inferred.
+        let best=r.find(x=>/CUR_TYPE_LCU|LOCAL/i.test(String(x[currK]||""))) || r[0];
+        const value=+best[valK];
+        if(!Number.isFinite(value)) throw new Error("Bad wage");
+
+        const currencyCode=Object.keys(c.currencies||{})[0];
+        if(!currencyCode) throw new Error("No currency");
+        const rate=currencyCode==="TWD" ? 1 : await getFX(currencyCode,"TWD");
+        const twd=value*rate;
+        $("salary").textContent=`NT$ ${fmtInt.format(twd)}`;
+        $("salaryNote").textContent=`ILOSTAT ${latestYear}：${fmtInt.format(value)} ${currencyCode}／月；以目前匯率約換算為 TWD`;
+    } catch(err) {
+        console.warn("Salary",err);
+        $("salary").textContent="資料暫缺";
+        $("salaryNote").textContent="ILOSTAT 此國家可能無一致可比的最新平均月薪，或瀏覽器無法直接讀取其壓縮資料";
+    } finally { $("salary").classList.remove("loading"); }
+}
+
+async function fetchTempRows() {
+    if(tempPromise) return tempPromise;
+    tempPromise=d3.csv(URLS.temp);
+    return tempPromise;
+}
+function mean(arr) {
+    const v=arr.filter(Number.isFinite);
+    return v.length ? d3.mean(v) : null;
+}
+async function loadTemperature(c) {
+    try {
+        const rows=await fetchTempRows();
+        const sample=rows[0]||{};
+        const tempK=Object.keys(sample).find(k=>/temperature/i.test(k) && !["Entity","Code","Day","Year"].includes(k))
+                  || Object.keys(sample).find(k=>!["Entity","Code","Day","Year"].includes(k));
+        const dateK=Object.keys(sample).find(k=>["day","date"].includes(k.toLowerCase()));
+        if(!tempK || !dateK) throw new Error("Temp schema");
+        const rr=rows.filter(r=>r.Code===c.cca3).map(r=>({date:new Date(r[dateK]),t:+r[tempK]}))
+            .filter(r=>Number.isFinite(r.t) && r.date.getUTCFullYear()>=1991 && r.date.getUTCFullYear()<=2020);
+        if(!rr.length) throw new Error("No temp");
+
+        const byMonth=d3.rollup(rr,v=>d3.mean(v,d=>d.t),d=>d.date.getUTCMonth()+1);
+        const south=(c.latlng?.[0]||0)<0;
+        const seasons=south
+            ? {spring:[9,10,11],summer:[12,1,2],autumn:[3,4,5],winter:[6,7,8]}
+            : {spring:[3,4,5],summer:[6,7,8],autumn:[9,10,11],winter:[12,1,2]};
+        for(const [id,months] of Object.entries(seasons)) {
+            const v=mean(months.map(m=>byMonth.get(m)));
+            $(id).textContent=v==null ? "—" : `${fmt1.format(v)}°C`;
+        }
+        const lat=c.latlng?.[0];
+        const hemi=south?"南半球":"北半球";
+        $("tempNote").textContent=`ERA5 1991–2020 國土平均地表氣溫；依${hemi}氣象季節分組${Math.abs(lat||0)<10 ? "（近赤道地區四季概念僅供比較）":""}`;
+    } catch(err) {
+        console.warn("Temp",err);
+        ["spring","summer","autumn","winter"].forEach(id=>$(id).textContent="—");
+        $("tempNote").textContent="此國家的 ERA5／OWID 月均溫資料暫時無法取得";
+    }
+}
+
+resize();
+loadBaseData();
+})();
+</script>
+</body>
+</html>
