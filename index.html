@@ -1739,24 +1739,57 @@ window.addEventListener(
  * Country lookup
  * ========================================================= */
 
-function countryForFeature(feature) {
+function countryForFeature(f) {
+    const numeric = String(f?.id ?? "").padStart(3, "0");
 
-    const numeric =
-        String(
-            feature.id
-        )
-            .padStart(
-                3,
-                "0"
-            );
+    const country = countryByNumeric.get(numeric);
 
+    if (country) {
+        return country;
+    }
 
-    return (
-        countryByNumeric.get(
-            numeric
-        ) ||
-        null
-    );
+    const fallbackMap = {
+        "840": { cca2: "US", cca3: "USA", name: { common: "United States" } },
+        "158": { cca2: "TW", cca3: "TWN", name: { common: "Taiwan" } },
+        "392": { cca2: "JP", cca3: "JPN", name: { common: "Japan" } },
+        "410": { cca2: "KR", cca3: "KOR", name: { common: "South Korea" } },
+        "156": { cca2: "CN", cca3: "CHN", name: { common: "China" } },
+        "276": { cca2: "DE", cca3: "DEU", name: { common: "Germany" } },
+        "250": { cca2: "FR", cca3: "FRA", name: { common: "France" } },
+        "826": { cca2: "GB", cca3: "GBR", name: { common: "United Kingdom" } },
+        "036": { cca2: "AU", cca3: "AUS", name: { common: "Australia" } },
+        "124": { cca2: "CA", cca3: "CAN", name: { common: "Canada" } }
+    };
+
+    const fallback = fallbackMap[numeric];
+
+    if (!fallback) {
+        return {
+            ccn3: numeric,
+            cca2: null,
+            cca3: null,
+            name: {
+                common: f?.properties?.name || "Unknown"
+            },
+            languages: {},
+            currencies: {},
+            capital: [],
+            area: null,
+            latlng: [0, 0]
+        };
+    }
+
+    return {
+        ccn3: numeric,
+        cca2: fallback.cca2,
+        cca3: fallback.cca3,
+        name: fallback.name,
+        languages: {},
+        currencies: {},
+        capital: [],
+        area: null,
+        latlng: [0, 0]
+    };
 }
 
 
