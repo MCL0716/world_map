@@ -1,1163 +1,4314 @@
 <!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
 <title>世界發展互動地圖｜HDI World Explorer</title>
-<meta name="description" content="以人類發展指數（HDI）著色的互動世界地圖，點擊國家查看人口、語言、貨幣、薪資、首都、最高峰與四季均溫。" />
+
 <style>
-    :root {
-        color-scheme: dark;
-        --bg: #08111f;
-        --panel: rgba(10, 21, 37, .95);
-        --panel2: rgba(16, 30, 49, .92);
-        --line: rgba(255,255,255,.17);
-        --text: #eef5ff;
-        --muted: #9db0c8;
-        --accent: #7dd3fc;
-        --shadow: 0 20px 60px rgba(0,0,0,.42);
+:root {
+    color-scheme: dark;
+
+    --bg: #07111f;
+    --panel: rgba(9, 20, 36, 0.96);
+    --line: rgba(255, 255, 255, 0.16);
+    --text: #eef6ff;
+    --muted: #92a8c0;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+}
+
+body {
+    overflow: hidden;
+    font-family:
+        "Noto Sans TC",
+        "PingFang TC",
+        "Microsoft JhengHei",
+        system-ui,
+        sans-serif;
+
+    background: #07111f;
+    color: var(--text);
+}
+
+#app {
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto 1fr;
+}
+
+/* =========================================================
+ * Header
+ * ========================================================= */
+
+header {
+    z-index: 20;
+
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    gap: 16px;
+
+    padding: 13px 18px;
+
+    border-bottom: 1px solid var(--line);
+
+    background: rgba(5, 13, 24, 0.92);
+
+    backdrop-filter: blur(14px);
+}
+
+.brand h1 {
+    margin: 0;
+
+    font-size: clamp(18px, 2vw, 26px);
+}
+
+.brand p {
+    margin: 4px 0 0;
+
+    color: var(--muted);
+
+    font-size: 12px;
+}
+
+.controls {
+    display: flex;
+
+    align-items: center;
+
+    gap: 8px;
+}
+
+input,
+button {
+    height: 38px;
+
+    border: 1px solid var(--line);
+
+    border-radius: 10px;
+
+    background: rgba(255, 255, 255, 0.06);
+
+    color: var(--text);
+
+    outline: none;
+}
+
+input {
+    width: min(270px, 40vw);
+
+    padding: 0 12px;
+}
+
+button {
+    padding: 0 13px;
+
+    cursor: pointer;
+}
+
+button:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
+/* =========================================================
+ * Map
+ * ========================================================= */
+
+main {
+    position: relative;
+
+    min-height: 0;
+}
+
+#map {
+    display: block;
+
+    width: 100%;
+    height: 100%;
+
+    cursor: grab;
+}
+
+#map:active {
+    cursor: grabbing;
+}
+
+.sphere {
+    fill: #071827;
+
+    stroke: rgba(255, 255, 255, 0.12);
+
+    stroke-width: 1;
+}
+
+.graticule {
+    fill: none;
+
+    stroke: rgba(255, 255, 255, 0.06);
+
+    stroke-width: 0.5px;
+
+    pointer-events: none;
+}
+
+.country {
+    vector-effect: non-scaling-stroke;
+
+    stroke: rgba(245, 250, 255, 0.8);
+
+    stroke-width: 0.55px;
+
+    transition:
+        filter 0.12s ease,
+        stroke-width 0.12s ease;
+}
+
+.country:hover {
+    stroke: #ffffff;
+
+    stroke-width: 1.2px;
+
+    filter: brightness(1.18);
+}
+
+.country.selected {
+    stroke: #ffffff;
+
+    stroke-width: 1.8px;
+}
+
+/* =========================================================
+ * Tooltip
+ * ========================================================= */
+
+#tooltip {
+    position: fixed;
+
+    z-index: 100;
+
+    pointer-events: none;
+
+    opacity: 0;
+
+    transform: translate(12px, 12px);
+
+    padding: 8px 10px;
+
+    border: 1px solid var(--line);
+
+    border-radius: 10px;
+
+    background: rgba(3, 9, 17, 0.96);
+
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+
+    font-size: 12px;
+}
+
+#tooltip strong {
+    display: block;
+
+    margin-bottom: 3px;
+}
+
+#tooltip span {
+    color: var(--muted);
+}
+
+/* =========================================================
+ * Status
+ * ========================================================= */
+
+.status {
+    position: absolute;
+
+    top: 12px;
+    left: 16px;
+
+    z-index: 8;
+
+    padding: 8px 11px;
+
+    border: 1px solid var(--line);
+
+    border-radius: 999px;
+
+    background: rgba(7, 17, 30, 0.88);
+
+    backdrop-filter: blur(12px);
+
+    color: var(--muted);
+
+    font-size: 11px;
+}
+
+.status b {
+    color: #e2f3ff;
+}
+
+/* =========================================================
+ * Legend
+ * ========================================================= */
+
+.legend {
+    position: absolute;
+
+    bottom: 16px;
+    left: 16px;
+
+    z-index: 8;
+
+    width: 270px;
+
+    padding: 12px;
+
+    border: 1px solid var(--line);
+
+    border-radius: 14px;
+
+    background: rgba(7, 17, 30, 0.88);
+
+    backdrop-filter: blur(12px);
+}
+
+.legend-title {
+    display: flex;
+
+    justify-content: space-between;
+
+    margin-bottom: 8px;
+
+    color: var(--muted);
+
+    font-size: 11px;
+}
+
+.gradient {
+    height: 10px;
+
+    border-radius: 999px;
+
+    background:
+        linear-gradient(
+            90deg,
+            #7f1d1d,
+            #b45309,
+            #ca8a04,
+            #65a30d,
+            #059669,
+            #0284c7,
+            #7c3aed
+        );
+}
+
+.ticks {
+    display: flex;
+
+    justify-content: space-between;
+
+    margin-top: 4px;
+
+    color: #8ca0b8;
+
+    font-size: 9px;
+}
+
+.legend-note {
+    margin-top: 7px;
+
+    color: #758ba5;
+
+    font-size: 9px;
+
+    line-height: 1.45;
+}
+
+/* =========================================================
+ * Timeline
+ * ========================================================= */
+
+.timeline {
+    position: absolute;
+
+    bottom: 16px;
+    left: 50%;
+
+    z-index: 9;
+
+    width: min(520px, calc(100vw - 330px));
+
+    min-width: 280px;
+
+    padding: 11px 13px;
+
+    transform: translateX(-50%);
+
+    border: 1px solid var(--line);
+
+    border-radius: 15px;
+
+    background: rgba(7, 17, 30, 0.9);
+
+    backdrop-filter: blur(12px);
+}
+
+.timeline-head {
+    display: flex;
+
+    justify-content: space-between;
+
+    align-items: center;
+
+    margin-bottom: 6px;
+}
+
+.timeline-title {
+    color: var(--muted);
+
+    font-size: 11px;
+}
+
+.timeline-year {
+    font-size: 18px;
+
+    font-weight: 700;
+}
+
+.timeline-row {
+    display: grid;
+
+    grid-template-columns: 34px 1fr;
+
+    align-items: center;
+
+    gap: 10px;
+}
+
+#play {
+    width: 34px;
+
+    padding: 0;
+
+    border-radius: 50%;
+}
+
+#yearSlider {
+    width: 100%;
+
+    height: 6px;
+
+    padding: 0;
+
+    appearance: none;
+
+    border: 0;
+
+    border-radius: 999px;
+
+    background:
+        linear-gradient(
+            90deg,
+            rgba(125, 211, 252, 0.45),
+            rgba(124, 58, 237, 0.6)
+        );
+}
+
+#yearSlider::-webkit-slider-thumb {
+    width: 17px;
+    height: 17px;
+
+    appearance: none;
+
+    border: 2px solid #7dd3fc;
+
+    border-radius: 50%;
+
+    background: white;
+}
+
+.timeline-foot {
+    display: flex;
+
+    justify-content: space-between;
+
+    margin-top: 5px;
+
+    color: #72889f;
+
+    font-size: 9px;
+}
+
+/* =========================================================
+ * Info panel
+ * ========================================================= */
+
+#info {
+    position: absolute;
+
+    top: 14px;
+    right: 14px;
+    bottom: 14px;
+
+    z-index: 30;
+
+    display: flex;
+
+    flex-direction: column;
+
+    width: min(430px, calc(100vw - 28px));
+
+    overflow: hidden;
+
+    transform: translateX(calc(100% + 30px));
+
+    transition: transform 0.25s ease;
+
+    border: 1px solid var(--line);
+
+    border-radius: 20px;
+
+    background: var(--panel);
+
+    backdrop-filter: blur(20px);
+
+    box-shadow:
+        0 20px 60px rgba(0, 0, 0, 0.45);
+}
+
+#info.open {
+    transform: translateX(0);
+}
+
+.info-head {
+    position: relative;
+
+    padding: 18px 52px 14px 18px;
+
+    border-bottom: 1px solid var(--line);
+
+    background:
+        linear-gradient(
+            140deg,
+            rgba(255, 255, 255, 0.08),
+            rgba(255, 255, 255, 0.01)
+        );
+}
+
+#close {
+    position: absolute;
+
+    top: 12px;
+    right: 12px;
+
+    width: 34px;
+
+    padding: 0;
+
+    border-radius: 50%;
+
+    font-size: 20px;
+}
+
+.country-title {
+    display: flex;
+
+    align-items: center;
+
+    gap: 12px;
+}
+
+.flag {
+    display: block;
+
+    width: 64px;
+    height: 43px;
+
+    object-fit: cover;
+
+    border: 1px solid rgba(255, 255, 255, 0.18);
+
+    border-radius: 7px;
+
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.country-title h2 {
+    margin: 0;
+
+    font-size: 23px;
+}
+
+.en {
+    margin-top: 3px;
+
+    color: var(--muted);
+
+    font-size: 13px;
+}
+
+.hdi-pill {
+    display: inline-flex;
+
+    margin-top: 11px;
+
+    padding: 6px 9px;
+
+    border: 1px solid rgba(125, 211, 252, 0.25);
+
+    border-radius: 999px;
+
+    background: rgba(125, 211, 252, 0.08);
+
+    color: #c9edff;
+
+    font-size: 11px;
+}
+
+.info-body {
+    overflow: auto;
+
+    padding: 14px 16px 22px;
+}
+
+.grid {
+    display: grid;
+
+    grid-template-columns: 1fr 1fr;
+
+    gap: 10px;
+}
+
+.card {
+    min-width: 0;
+
+    padding: 12px;
+
+    border: 1px solid rgba(255, 255, 255, 0.09);
+
+    border-radius: 14px;
+
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.card.wide {
+    grid-column: 1 / -1;
+}
+
+.label {
+    margin-bottom: 5px;
+
+    color: var(--muted);
+
+    font-size: 10px;
+
+    letter-spacing: 0.05em;
+}
+
+.value {
+    font-size: 14px;
+
+    line-height: 1.45;
+
+    word-break: break-word;
+}
+
+.value.big {
+    font-size: 19px;
+
+    font-weight: 650;
+}
+
+.sub {
+    margin-top: 4px;
+
+    color: #7d93aa;
+
+    font-size: 10px;
+
+    line-height: 1.45;
+}
+
+.loading::after {
+    display: inline-block;
+
+    width: 10px;
+    height: 10px;
+
+    margin-left: 6px;
+
+    content: "";
+
+    vertical-align: -1px;
+
+    border: 2px solid rgba(255, 255, 255, 0.2);
+
+    border-top-color: white;
+
+    border-radius: 50%;
+
+    animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
     }
-    * { box-sizing: border-box; }
-    html, body { height: 100%; margin: 0; }
-    body {
-        overflow: hidden;
-        font-family: Inter, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
-        background:
-            radial-gradient(circle at 30% 15%, rgba(43,92,140,.20), transparent 32%),
-            var(--bg);
-        color: var(--text);
-    }
-    #app { height: 100%; display: grid; grid-template-rows: auto 1fr; }
+}
+
+.temp-grid {
+    display: grid;
+
+    grid-template-columns: repeat(4, 1fr);
+
+    gap: 6px;
+}
+
+.season {
+    padding: 8px 2px;
+
+    text-align: center;
+
+    border-radius: 10px;
+
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.season span {
+    color: var(--muted);
+
+    font-size: 9px;
+}
+
+.season b {
+    display: block;
+
+    margin-top: 3px;
+
+    font-size: 15px;
+}
+
+.sources {
+    margin-top: 14px;
+
+    color: #6f849d;
+
+    font-size: 9px;
+
+    line-height: 1.55;
+}
+
+/* =========================================================
+ * Mobile
+ * ========================================================= */
+
+@media (max-width: 720px) {
     header {
-        z-index: 20;
-        display: flex;
-        gap: 18px;
-        align-items: center;
-        justify-content: space-between;
-        padding: 14px 18px;
-        border-bottom: 1px solid var(--line);
-        background: rgba(5,13,24,.86);
-        backdrop-filter: blur(16px);
+        padding: 10px 12px;
     }
-    .brand { min-width: 260px; }
-    .brand h1 { margin: 0; font-size: clamp(18px, 2vw, 26px); letter-spacing: .02em; }
-    .brand p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
-    .controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
-    .search-wrap { position: relative; }
-    input, button {
-        height: 38px;
-        border: 1px solid var(--line);
-        border-radius: 11px;
-        color: var(--text);
-        background: rgba(255,255,255,.06);
-        outline: none;
+
+    .brand p {
+        display: none;
     }
-    input { width: min(280px, 40vw); padding: 0 12px; }
-    input:focus { border-color: rgba(125,211,252,.7); box-shadow: 0 0 0 3px rgba(125,211,252,.1); }
-    button { cursor: pointer; padding: 0 13px; }
-    button:hover { background: rgba(255,255,255,.11); }
-    main { position: relative; min-height: 0; }
-    #map { width: 100%; height: 100%; display: block; cursor: grab; }
-    #map:active { cursor: grabbing; }
-    .country {
-        vector-effect: non-scaling-stroke;
-        stroke: rgba(240,248,255,.72);
-        stroke-width: .55px;
-        transition: filter .12s ease, opacity .12s ease;
+
+    input {
+        width: 42vw;
+
+        height: 34px;
     }
-    .country:hover {
-        stroke: #fff;
-        stroke-width: 1.1px;
-        filter: brightness(1.18);
+
+    button {
+        height: 34px;
     }
-    .country.selected { stroke: #fff; stroke-width: 1.8px; filter: drop-shadow(0 0 5px rgba(255,255,255,.4)); }
-    .sphere { fill: #071625 !important; stroke: rgba(255,255,255,.12); stroke-width: 1; }
-    .graticule { fill: none; stroke: rgba(255,255,255,.055); stroke-width: .5px; pointer-events: none; }
-    .legend, .status {
-        position: absolute; z-index: 8;
-        border: 1px solid var(--line);
-        background: rgba(7,17,30,.82);
-        backdrop-filter: blur(12px);
-        box-shadow: var(--shadow);
-    }
-    .legend { left: 16px; bottom: 16px; width: 270px; border-radius: 14px; padding: 12px; }
-    .legend-title { font-size: 12px; color: var(--muted); margin-bottom: 8px; display:flex; justify-content:space-between; gap:10px; }
-    .gradient {
-        height: 10px; border-radius: 999px;
-        background: linear-gradient(90deg,#7f1d1d,#b45309,#ca8a04,#65a30d,#059669,#0284c7,#7c3aed);
-        border: 1px solid rgba(255,255,255,.15);
-    }
-    .ticks { display:flex; justify-content:space-between; font-size:10px; color:#a9bdd4; margin-top:5px; }
-    .legend-note { margin-top:8px; font-size:10px; line-height:1.45; color:#7f95ad; }
-    .status { top: 12px; left: 16px; border-radius: 999px; padding: 8px 11px; font-size: 11px; color: var(--muted); }
-    .status b { color: #d9efff; font-weight: 600; }
-    .tooltip {
-        position: fixed; z-index: 50; pointer-events:none;
-        transform: translate(12px,12px);
-        padding: 8px 10px; border-radius: 10px;
-        background: rgba(4,10,18,.93);
-        border: 1px solid var(--line);
-        box-shadow: 0 10px 30px rgba(0,0,0,.35);
-        opacity:0; transition: opacity .08s;
-        font-size:12px;
-    }
-    .tooltip strong { display:block; margin-bottom:2px; }
-    .tooltip span { color:var(--muted); }
-    #info {
-        position:absolute; z-index: 30;
-        top: 14px; right: 14px; bottom: 14px;
-        width:min(430px, calc(100vw - 28px));
-        border-radius: 20px;
-        border: 1px solid var(--line);
-        background: var(--panel);
-        backdrop-filter: blur(22px);
-        box-shadow: var(--shadow);
-        transform: translateX(calc(100% + 30px));
-        transition: transform .25s cubic-bezier(.2,.8,.2,1);
-        overflow:hidden;
-        display:flex; flex-direction:column;
-    }
-    #info.open { transform: translateX(0); }
-    .info-head {
-        position:relative; padding:18px 52px 14px 18px;
-        background: linear-gradient(140deg,rgba(255,255,255,.08),rgba(255,255,255,.01));
-        border-bottom:1px solid var(--line);
-    }
-    #close {
-        position:absolute; right:12px; top:12px; width:34px; height:34px; padding:0; font-size:20px;
-        border-radius:50%;
-    }
-    .country-title { display:flex; align-items:center; gap:12px; }
-    .flag {
-        width:62px; height:42px; object-fit:cover; border-radius:8px;
-        border:1px solid rgba(255,255,255,.18);
-        background:rgba(255,255,255,.055);
-        display:block;
-    }
-    .country-title h2 { margin:0; font-size:23px; }
-    .country-title .en { color:var(--muted); font-size:13px; margin-top:3px; }
-    .hdi-pill {
-        display:inline-flex; align-items:center; gap:6px;
-        margin-top:12px; border-radius:999px; padding:6px 9px;
-        background:rgba(125,211,252,.10); border:1px solid rgba(125,211,252,.22);
-        color:#cdefff; font-size:11px;
-    }
-    .info-body { overflow:auto; padding:14px 16px 22px; scrollbar-width: thin; }
-    .grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-    .card {
-        min-width:0; padding:12px; border-radius:14px;
-        border:1px solid rgba(255,255,255,.09);
-        background:rgba(255,255,255,.035);
-    }
-    .card.wide { grid-column:1/-1; }
-    .label { color:var(--muted); font-size:10px; letter-spacing:.06em; text-transform:uppercase; margin-bottom:5px; }
-    .value { font-size:14px; line-height:1.45; word-break:break-word; }
-    .value.big { font-size:19px; font-weight:650; }
-    .sub { margin-top:4px; color:#8097b0; font-size:10px; line-height:1.45; }
-    .temp-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:7px; margin-top:5px; }
-    .season { text-align:center; border-radius:11px; padding:9px 3px; background:rgba(255,255,255,.04); }
-    .season b { display:block; font-size:16px; margin-top:3px; }
-    .season span { color:var(--muted); font-size:10px; }
-    .loading::after {
-        content:""; display:inline-block; width:11px; height:11px; margin-left:6px;
-        border:2px solid rgba(255,255,255,.25); border-top-color:#fff; border-radius:50%;
-        animation:spin .7s linear infinite; vertical-align:-2px;
-    }
-    @keyframes spin { to { transform:rotate(360deg); } }
-    .sources { margin-top:14px; color:#7489a1; font-size:9.5px; line-height:1.55; }
-    .sources a { color:#8fb9d6; text-decoration:none; }
-    .error-banner {
-        display:none; margin:10px 16px 0; border-radius:12px; padding:9px 11px;
-        color:#ffd4d4; background:rgba(220,38,38,.12); border:1px solid rgba(248,113,113,.25);
-        font-size:11px; line-height:1.4;
+
+    .legend {
+        bottom: 9px;
+        left: 9px;
+
+        width: 205px;
     }
 
     .timeline {
-        position:absolute; z-index:9;
-        left:50%; bottom:16px; transform:translateX(-50%);
-        width:min(520px, calc(100vw - 330px));
-        min-width:280px;
-        border:1px solid var(--line);
-        background:rgba(7,17,30,.86);
-        backdrop-filter:blur(12px);
-        box-shadow:var(--shadow);
-        border-radius:16px;
-        padding:11px 13px;
-    }
-    .timeline-head {
-        display:flex; align-items:center; justify-content:space-between;
-        gap:12px; margin-bottom:7px;
-    }
-    .timeline-title { font-size:11px; color:var(--muted); }
-    .timeline-year { font-size:18px; font-weight:750; min-width:48px; text-align:right; }
-    .timeline-row { display:grid; grid-template-columns:34px 1fr; gap:10px; align-items:center; }
-    #play {
-        width:34px; height:34px; padding:0; border-radius:50%;
-        font-size:14px; line-height:1;
-    }
-    #yearSlider {
-        width:100%; height:6px; padding:0;
-        appearance:none; -webkit-appearance:none;
-        border:0; border-radius:999px;
-        background:linear-gradient(90deg,rgba(125,211,252,.38),rgba(124,58,237,.55));
-        cursor:pointer;
-    }
-    #yearSlider::-webkit-slider-thumb {
-        appearance:none; -webkit-appearance:none;
-        width:17px; height:17px; border-radius:50%;
-        background:#fff; border:2px solid #8bdcff;
-        box-shadow:0 0 0 4px rgba(125,211,252,.15);
-    }
-    #yearSlider::-moz-range-thumb {
-        width:17px; height:17px; border-radius:50%;
-        background:#fff; border:2px solid #8bdcff;
-        box-shadow:0 0 0 4px rgba(125,211,252,.15);
-    }
-    .timeline-foot {
-        margin-top:5px; display:flex; justify-content:space-between;
-        color:#7d92aa; font-size:9px;
+        right: 9px;
+        bottom: 9px;
+        left: auto;
+
+        width: 47vw;
+
+        min-width: 0;
+
+        transform: none;
     }
 
-    @media (max-width: 720px) {
-        header { padding:10px 12px; align-items:flex-start; }
-        .brand { min-width: 0; }
-        .brand p { display:none; }
-        .controls { gap:6px; }
-        input { width:42vw; height:34px; }
-        button { height:34px; }
-        .legend { width:210px; left:9px; bottom:9px; }
-        .timeline {
-            left:auto; right:9px; transform:none;
-            width:min(48vw,330px); min-width:0; bottom:9px;
-        }
-        .status { left:9px; top:9px; }
-        #info {
-            top:auto; left:8px; right:8px; bottom:8px; width:auto; height:min(73vh,650px);
-            transform:translateY(calc(100% + 20px));
-        }
-        #info.open { transform:translateY(0); }
-        .grid { grid-template-columns:1fr 1fr; }
+    #info {
+        top: auto;
+        right: 8px;
+        bottom: 8px;
+        left: 8px;
+
+        width: auto;
+        height: min(74vh, 650px);
+
+        transform: translateY(calc(100% + 20px));
     }
+
+    #info.open {
+        transform: translateY(0);
+    }
+}
 </style>
 </head>
+
 <body>
+
 <div id="app">
-    <header>
-        <div class="brand">
-            <h1>世界發展互動地圖</h1>
-            <p>World Human Development Explorer · 點擊國家查看完整資訊</p>
-        </div>
-        <div class="controls">
-            <div class="search-wrap"><input id="search" autocomplete="off" placeholder="搜尋國家 / Search country…" /></div>
-            <button id="reset" title="回到世界視角">重設視角</button>
-        </div>
-    </header>
-    <main>
-        <svg id="map" aria-label="世界地圖"></svg>
-        <div class="status" id="status"><b>載入中</b> · 正在取得世界資料</div>
-        <div class="legend">
-            <div class="legend-title"><span>人類發展指數 HDI</span><span id="hdiYear">—</span></div>
-            <div class="gradient"></div>
-            <div class="ticks"><span>0.40</span><span>0.55</span><span>0.70</span><span>0.85</span><span>1.00</span></div>
-            <div class="legend-note">灰色表示最新 HDI 資料缺值。HDI 越高代表健康、教育與所得三項綜合發展程度越高。</div>
-        </div>
 
-        <div class="timeline">
-            <div class="timeline-head">
-                <div class="timeline-title">HDI 歷史演進</div>
-                <div class="timeline-year" id="yearValue">—</div>
-            </div>
-            <div class="timeline-row">
-                <button id="play" title="播放 HDI 年份演進">▶</button>
-                <input id="yearSlider" type="range" min="1990" max="2023" step="1" value="2023" aria-label="HDI 年份" />
-            </div>
-            <div class="timeline-foot"><span id="yearMin">1990</span><span>拖曳年份查看全球 HDI 變化</span><span id="yearMax">2023</span></div>
-        </div>
+<header>
 
-        <aside id="info" aria-live="polite">
-            <div class="info-head">
-                <button id="close" aria-label="關閉">×</button>
-                <div class="country-title">
-                    <img class="flag" id="flag" alt="國旗" />
-                    <div>
-                        <h2 id="nameZh">—</h2>
-                        <div class="en" id="nameEn">—</div>
-                    </div>
-                </div>
-                <div class="hdi-pill" id="hdiPill">HDI：—</div>
-            </div>
-            <div class="error-banner" id="errorBanner"></div>
-            <div class="info-body">
-                <div class="grid">
-                    <div class="card"><div class="label">國土面積</div><div class="value big" id="area">—</div><div class="sub">平方公里 km²</div></div>
-                    <div class="card"><div class="label">人口</div><div class="value big" id="population">—</div><div class="sub" id="populationNote">UN World Population Prospects 2023</div></div>
-                    <div class="card wide"><div class="label">使用語言</div><div class="value" id="languages">—</div></div>
-                    <div class="card"><div class="label">使用貨幣</div><div class="value" id="currency">—</div></div>
-                    <div class="card"><div class="label">首都</div><div class="value" id="capital">—</div></div>
-                    <div class="card wide">
-                        <div class="label">平均月薪（新台幣）</div>
-                        <div class="value big loading" id="salary">查詢中</div>
-                        <div class="sub" id="salaryNote">ILOSTAT 平均月薪；依資料年度與可用幣別換算</div>
-                    </div>
-                    <div class="card wide">
-                        <div class="label">最高峰 / 國家最高點</div>
-                        <div class="value big loading" id="peak">查詢中</div>
-                        <div class="sub" id="peakNote">Wikidata 結構化資料</div>
-                    </div>
-                    <div class="card wide">
-                        <div class="label">四季均溫</div>
-                        <div class="temp-grid">
-                            <div class="season"><span>春 Spring</span><b id="spring">—</b></div>
-                            <div class="season"><span>夏 Summer</span><b id="summer">—</b></div>
-                            <div class="season"><span>秋 Autumn</span><b id="autumn">—</b></div>
-                            <div class="season"><span>冬 Winter</span><b id="winter">—</b></div>
-                        </div>
-                        <div class="sub" id="tempNote">ERA5 國土平均地表氣溫；1991–2020 氣候平均</div>
-                    </div>
-                </div>
-                <div class="sources">
-                    資料來源：HDI — UNDP Human Development Reports / Our World in Data；國家代碼 — ISO 3166（內建）；國家詳細資料 — world-countries（含瀏覽器快取）；
-                    人口 — UN World Population Prospects；薪資 — ILOSTAT；最高點 — Wikidata；氣溫 — Copernicus ERA5 / Our World in Data，NASA POWER（備援）。<br>
-                    注意：跨國薪資統計的調查範圍、稅前/稅後與資料年份可能不同；四季均溫為全國陸地平均，幅員大的國家不等同於首都氣候。
-                </div>
-            </div>
-        </aside>
-    </main>
+    <div class="brand">
+        <h1>世界發展互動地圖</h1>
+        <p>
+            World Human Development Explorer
+        </p>
+    </div>
+
+    <div class="controls">
+
+        <input
+            id="search"
+            type="text"
+            autocomplete="off"
+            placeholder="搜尋國家 / Search country"
+        >
+
+        <button id="reset">
+            重設視角
+        </button>
+
+    </div>
+
+</header>
+
+<main>
+
+<svg id="map"></svg>
+
+<div
+    id="status"
+    class="status"
+>
+    <b>載入中</b>
+    · 正在取得世界資料
 </div>
-<div id="tooltip" class="tooltip"></div>
+
+<div class="legend">
+
+    <div class="legend-title">
+        <span>人類發展指數 HDI</span>
+        <span id="hdiYear">—</span>
+    </div>
+
+    <div class="gradient"></div>
+
+    <div class="ticks">
+        <span>0.40</span>
+        <span>0.55</span>
+        <span>0.70</span>
+        <span>0.85</span>
+        <span>1.00</span>
+    </div>
+
+    <div class="legend-note">
+        HDI 越高代表健康、教育與所得等綜合發展程度越高。
+        灰色表示該年度沒有可使用的 HDI 資料。
+    </div>
+
+</div>
+
+<div class="timeline">
+
+    <div class="timeline-head">
+
+        <span class="timeline-title">
+            HDI 歷史演進
+        </span>
+
+        <span
+            id="yearValue"
+            class="timeline-year"
+        >
+            —
+        </span>
+
+    </div>
+
+    <div class="timeline-row">
+
+        <button id="play">
+            ▶
+        </button>
+
+        <input
+            id="yearSlider"
+            type="range"
+            min="1990"
+            max="2023"
+            value="2023"
+            step="1"
+        >
+
+    </div>
+
+    <div class="timeline-foot">
+
+        <span id="yearMin">
+            1990
+        </span>
+
+        <span>
+            拖曳查看歷史變化
+        </span>
+
+        <span id="yearMax">
+            2023
+        </span>
+
+    </div>
+
+</div>
+
+<aside id="info">
+
+    <div class="info-head">
+
+        <button id="close">
+            ×
+        </button>
+
+        <div class="country-title">
+
+            <img
+                id="flag"
+                class="flag"
+                alt="國旗"
+            >
+
+            <div>
+
+                <h2 id="nameZh">
+                    —
+                </h2>
+
+                <div
+                    id="nameEn"
+                    class="en"
+                >
+                    —
+                </div>
+
+            </div>
+
+        </div>
+
+        <div
+            id="hdiPill"
+            class="hdi-pill"
+        >
+            HDI：—
+        </div>
+
+    </div>
+
+    <div class="info-body">
+
+        <div class="grid">
+
+            <div class="card">
+
+                <div class="label">
+                    國土面積
+                </div>
+
+                <div
+                    id="area"
+                    class="value big"
+                >
+                    —
+                </div>
+
+                <div class="sub">
+                    平方公里 km²
+                </div>
+
+            </div>
+
+            <div class="card">
+
+                <div class="label">
+                    人口
+                </div>
+
+                <div
+                    id="population"
+                    class="value big"
+                >
+                    —
+                </div>
+
+                <div
+                    id="populationNote"
+                    class="sub"
+                >
+                    最新可用資料
+                </div>
+
+            </div>
+
+            <div class="card wide">
+
+                <div class="label">
+                    使用語言
+                </div>
+
+                <div
+                    id="languages"
+                    class="value"
+                >
+                    —
+                </div>
+
+            </div>
+
+            <div class="card">
+
+                <div class="label">
+                    使用貨幣
+                </div>
+
+                <div
+                    id="currency"
+                    class="value"
+                >
+                    —
+                </div>
+
+            </div>
+
+            <div class="card">
+
+                <div class="label">
+                    首都
+                </div>
+
+                <div
+                    id="capital"
+                    class="value"
+                >
+                    —
+                </div>
+
+            </div>
+
+            <div class="card wide">
+
+                <div class="label">
+                    平均月薪（新台幣）
+                </div>
+
+                <div
+                    id="salary"
+                    class="value big"
+                >
+                    —
+                </div>
+
+                <div
+                    id="salaryNote"
+                    class="sub"
+                >
+                    稅前平均月薪
+                </div>
+
+            </div>
+
+            <div class="card wide">
+
+                <div class="label">
+                    最高峰 / 國家最高點
+                </div>
+
+                <div
+                    id="peak"
+                    class="value big"
+                >
+                    —
+                </div>
+
+                <div
+                    id="peakNote"
+                    class="sub"
+                >
+                    Wikidata
+                </div>
+
+            </div>
+
+            <div class="card wide">
+
+                <div class="label">
+                    四季均溫
+                </div>
+
+                <div class="temp-grid">
+
+                    <div class="season">
+                        <span>春 Spring</span>
+                        <b id="spring">—</b>
+                    </div>
+
+                    <div class="season">
+                        <span>夏 Summer</span>
+                        <b id="summer">—</b>
+                    </div>
+
+                    <div class="season">
+                        <span>秋 Autumn</span>
+                        <b id="autumn">—</b>
+                    </div>
+
+                    <div class="season">
+                        <span>冬 Winter</span>
+                        <b id="winter">—</b>
+                    </div>
+
+                </div>
+
+                <div
+                    id="tempNote"
+                    class="sub"
+                >
+                    ERA5 / NASA POWER
+                </div>
+
+            </div>
+
+        </div>
+
+        <div class="sources">
+            HDI：UNDP / Our World in Data。
+            國家基本資料：world-countries。
+            人口：world-countries。
+            薪資：2026 國際平均稅前薪資參考資料，其他國家以 ILOSTAT 備援。
+            最高峰：Wikidata。
+            氣候：ERA5 / Our World in Data；NASA POWER 備援。
+        </div>
+
+    </div>
+
+</aside>
+
+</main>
+
+</div>
+
+<div id="tooltip"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
 <script src="https://cdn.jsdelivr.net/npm/topojson-client@3"></script>
+
 <script>
 (() => {
+
 "use strict";
 
+/* =========================================================
+ * URLs
+ * ========================================================= */
+
 const URLS = {
-    world: "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json",
-    countries: "https://cdn.jsdelivr.net/npm/world-countries@5.1.0/countries.json",
-    hdi: "https://ourworldindata.org/grapher/human-development-index.csv?v=1&csvType=full&useColumnShortNames=false",
-    tempBase: "https://ourworldindata.org/grapher/average-monthly-surface-temperature.csv",
-    ilo: "https://rplumber.ilo.org/data/indicator/",
-    fx: "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/",
-    wikidata: "https://query.wikidata.org/sparql",
-    nasaPower: "https://power.larc.nasa.gov/api/temporal/climatology/point"
+
+    world:
+        "https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json",
+
+    countries:
+        "https://cdn.jsdelivr.net/npm/world-countries@5.1.0/countries.json",
+
+    hdi:
+        "https://ourworldindata.org/grapher/human-development-index.csv?v=1&csvType=full&useColumnShortNames=false",
+
+    temp:
+        "https://ourworldindata.org/grapher/average-monthly-surface-temperature.csv",
+
+    wikidata:
+        "https://query.wikidata.org/sparql",
+
+    fx:
+        "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/",
+
+    ilo:
+        "https://rplumber.ilo.org/data/indicator/",
+
+    nasa:
+        "https://power.larc.nasa.gov/api/temporal/climatology/point"
 };
 
-const fmtInt = new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 0 });
-const fmt1 = new Intl.NumberFormat("zh-TW", { maximumFractionDigits: 1 });
-const ISO_COUNTRIES = {"533":{"cca2":"AW","cca3":"ABW","name":"Aruba"},"004":{"cca2":"AF","cca3":"AFG","name":"Afghanistan"},"024":{"cca2":"AO","cca3":"AGO","name":"Angola"},"660":{"cca2":"AI","cca3":"AIA","name":"Anguilla"},"248":{"cca2":"AX","cca3":"ALA","name":"Åland Islands"},"008":{"cca2":"AL","cca3":"ALB","name":"Albania"},"020":{"cca2":"AD","cca3":"AND","name":"Andorra"},"784":{"cca2":"AE","cca3":"ARE","name":"United Arab Emirates"},"032":{"cca2":"AR","cca3":"ARG","name":"Argentina"},"051":{"cca2":"AM","cca3":"ARM","name":"Armenia"},"016":{"cca2":"AS","cca3":"ASM","name":"American Samoa"},"010":{"cca2":"AQ","cca3":"ATA","name":"Antarctica"},"260":{"cca2":"TF","cca3":"ATF","name":"French Southern Territories"},"028":{"cca2":"AG","cca3":"ATG","name":"Antigua and Barbuda"},"036":{"cca2":"AU","cca3":"AUS","name":"Australia"},"040":{"cca2":"AT","cca3":"AUT","name":"Austria"},"031":{"cca2":"AZ","cca3":"AZE","name":"Azerbaijan"},"108":{"cca2":"BI","cca3":"BDI","name":"Burundi"},"056":{"cca2":"BE","cca3":"BEL","name":"Belgium"},"204":{"cca2":"BJ","cca3":"BEN","name":"Benin"},"535":{"cca2":"BQ","cca3":"BES","name":"Bonaire, Sint Eustatius and Saba"},"854":{"cca2":"BF","cca3":"BFA","name":"Burkina Faso"},"050":{"cca2":"BD","cca3":"BGD","name":"Bangladesh"},"100":{"cca2":"BG","cca3":"BGR","name":"Bulgaria"},"048":{"cca2":"BH","cca3":"BHR","name":"Bahrain"},"044":{"cca2":"BS","cca3":"BHS","name":"Bahamas"},"070":{"cca2":"BA","cca3":"BIH","name":"Bosnia and Herzegovina"},"652":{"cca2":"BL","cca3":"BLM","name":"Saint Barthélemy"},"112":{"cca2":"BY","cca3":"BLR","name":"Belarus"},"084":{"cca2":"BZ","cca3":"BLZ","name":"Belize"},"060":{"cca2":"BM","cca3":"BMU","name":"Bermuda"},"068":{"cca2":"BO","cca3":"BOL","name":"Bolivia, Plurinational State of"},"076":{"cca2":"BR","cca3":"BRA","name":"Brazil"},"052":{"cca2":"BB","cca3":"BRB","name":"Barbados"},"096":{"cca2":"BN","cca3":"BRN","name":"Brunei Darussalam"},"064":{"cca2":"BT","cca3":"BTN","name":"Bhutan"},"074":{"cca2":"BV","cca3":"BVT","name":"Bouvet Island"},"072":{"cca2":"BW","cca3":"BWA","name":"Botswana"},"140":{"cca2":"CF","cca3":"CAF","name":"Central African Republic"},"124":{"cca2":"CA","cca3":"CAN","name":"Canada"},"166":{"cca2":"CC","cca3":"CCK","name":"Cocos (Keeling) Islands"},"756":{"cca2":"CH","cca3":"CHE","name":"Switzerland"},"152":{"cca2":"CL","cca3":"CHL","name":"Chile"},"156":{"cca2":"CN","cca3":"CHN","name":"China"},"384":{"cca2":"CI","cca3":"CIV","name":"Côte d'Ivoire"},"120":{"cca2":"CM","cca3":"CMR","name":"Cameroon"},"180":{"cca2":"CD","cca3":"COD","name":"Congo, The Democratic Republic of the"},"178":{"cca2":"CG","cca3":"COG","name":"Congo"},"184":{"cca2":"CK","cca3":"COK","name":"Cook Islands"},"170":{"cca2":"CO","cca3":"COL","name":"Colombia"},"174":{"cca2":"KM","cca3":"COM","name":"Comoros"},"132":{"cca2":"CV","cca3":"CPV","name":"Cabo Verde"},"188":{"cca2":"CR","cca3":"CRI","name":"Costa Rica"},"192":{"cca2":"CU","cca3":"CUB","name":"Cuba"},"531":{"cca2":"CW","cca3":"CUW","name":"Curaçao"},"162":{"cca2":"CX","cca3":"CXR","name":"Christmas Island"},"136":{"cca2":"KY","cca3":"CYM","name":"Cayman Islands"},"196":{"cca2":"CY","cca3":"CYP","name":"Cyprus"},"203":{"cca2":"CZ","cca3":"CZE","name":"Czechia"},"276":{"cca2":"DE","cca3":"DEU","name":"Germany"},"262":{"cca2":"DJ","cca3":"DJI","name":"Djibouti"},"212":{"cca2":"DM","cca3":"DMA","name":"Dominica"},"208":{"cca2":"DK","cca3":"DNK","name":"Denmark"},"214":{"cca2":"DO","cca3":"DOM","name":"Dominican Republic"},"012":{"cca2":"DZ","cca3":"DZA","name":"Algeria"},"218":{"cca2":"EC","cca3":"ECU","name":"Ecuador"},"818":{"cca2":"EG","cca3":"EGY","name":"Egypt"},"232":{"cca2":"ER","cca3":"ERI","name":"Eritrea"},"732":{"cca2":"EH","cca3":"ESH","name":"Western Sahara"},"724":{"cca2":"ES","cca3":"ESP","name":"Spain"},"233":{"cca2":"EE","cca3":"EST","name":"Estonia"},"231":{"cca2":"ET","cca3":"ETH","name":"Ethiopia"},"246":{"cca2":"FI","cca3":"FIN","name":"Finland"},"242":{"cca2":"FJ","cca3":"FJI","name":"Fiji"},"238":{"cca2":"FK","cca3":"FLK","name":"Falkland Islands (Malvinas)"},"250":{"cca2":"FR","cca3":"FRA","name":"France"},"234":{"cca2":"FO","cca3":"FRO","name":"Faroe Islands"},"583":{"cca2":"FM","cca3":"FSM","name":"Micronesia, Federated States of"},"266":{"cca2":"GA","cca3":"GAB","name":"Gabon"},"826":{"cca2":"GB","cca3":"GBR","name":"United Kingdom"},"268":{"cca2":"GE","cca3":"GEO","name":"Georgia"},"831":{"cca2":"GG","cca3":"GGY","name":"Guernsey"},"288":{"cca2":"GH","cca3":"GHA","name":"Ghana"},"292":{"cca2":"GI","cca3":"GIB","name":"Gibraltar"},"324":{"cca2":"GN","cca3":"GIN","name":"Guinea"},"312":{"cca2":"GP","cca3":"GLP","name":"Guadeloupe"},"270":{"cca2":"GM","cca3":"GMB","name":"Gambia"},"624":{"cca2":"GW","cca3":"GNB","name":"Guinea-Bissau"},"226":{"cca2":"GQ","cca3":"GNQ","name":"Equatorial Guinea"},"300":{"cca2":"GR","cca3":"GRC","name":"Greece"},"308":{"cca2":"GD","cca3":"GRD","name":"Grenada"},"304":{"cca2":"GL","cca3":"GRL","name":"Greenland"},"320":{"cca2":"GT","cca3":"GTM","name":"Guatemala"},"254":{"cca2":"GF","cca3":"GUF","name":"French Guiana"},"316":{"cca2":"GU","cca3":"GUM","name":"Guam"},"328":{"cca2":"GY","cca3":"GUY","name":"Guyana"},"344":{"cca2":"HK","cca3":"HKG","name":"Hong Kong"},"334":{"cca2":"HM","cca3":"HMD","name":"Heard Island and McDonald Islands"},"340":{"cca2":"HN","cca3":"HND","name":"Honduras"},"191":{"cca2":"HR","cca3":"HRV","name":"Croatia"},"332":{"cca2":"HT","cca3":"HTI","name":"Haiti"},"348":{"cca2":"HU","cca3":"HUN","name":"Hungary"},"360":{"cca2":"ID","cca3":"IDN","name":"Indonesia"},"833":{"cca2":"IM","cca3":"IMN","name":"Isle of Man"},"356":{"cca2":"IN","cca3":"IND","name":"India"},"086":{"cca2":"IO","cca3":"IOT","name":"British Indian Ocean Territory"},"372":{"cca2":"IE","cca3":"IRL","name":"Ireland"},"364":{"cca2":"IR","cca3":"IRN","name":"Iran, Islamic Republic of"},"368":{"cca2":"IQ","cca3":"IRQ","name":"Iraq"},"352":{"cca2":"IS","cca3":"ISL","name":"Iceland"},"376":{"cca2":"IL","cca3":"ISR","name":"Israel"},"380":{"cca2":"IT","cca3":"ITA","name":"Italy"},"388":{"cca2":"JM","cca3":"JAM","name":"Jamaica"},"832":{"cca2":"JE","cca3":"JEY","name":"Jersey"},"400":{"cca2":"JO","cca3":"JOR","name":"Jordan"},"392":{"cca2":"JP","cca3":"JPN","name":"Japan"},"398":{"cca2":"KZ","cca3":"KAZ","name":"Kazakhstan"},"404":{"cca2":"KE","cca3":"KEN","name":"Kenya"},"417":{"cca2":"KG","cca3":"KGZ","name":"Kyrgyzstan"},"116":{"cca2":"KH","cca3":"KHM","name":"Cambodia"},"296":{"cca2":"KI","cca3":"KIR","name":"Kiribati"},"659":{"cca2":"KN","cca3":"KNA","name":"Saint Kitts and Nevis"},"410":{"cca2":"KR","cca3":"KOR","name":"Korea, Republic of"},"414":{"cca2":"KW","cca3":"KWT","name":"Kuwait"},"418":{"cca2":"LA","cca3":"LAO","name":"Lao People's Democratic Republic"},"422":{"cca2":"LB","cca3":"LBN","name":"Lebanon"},"430":{"cca2":"LR","cca3":"LBR","name":"Liberia"},"434":{"cca2":"LY","cca3":"LBY","name":"Libya"},"662":{"cca2":"LC","cca3":"LCA","name":"Saint Lucia"},"438":{"cca2":"LI","cca3":"LIE","name":"Liechtenstein"},"144":{"cca2":"LK","cca3":"LKA","name":"Sri Lanka"},"426":{"cca2":"LS","cca3":"LSO","name":"Lesotho"},"440":{"cca2":"LT","cca3":"LTU","name":"Lithuania"},"442":{"cca2":"LU","cca3":"LUX","name":"Luxembourg"},"428":{"cca2":"LV","cca3":"LVA","name":"Latvia"},"446":{"cca2":"MO","cca3":"MAC","name":"Macao"},"663":{"cca2":"MF","cca3":"MAF","name":"Saint Martin (French part)"},"504":{"cca2":"MA","cca3":"MAR","name":"Morocco"},"492":{"cca2":"MC","cca3":"MCO","name":"Monaco"},"498":{"cca2":"MD","cca3":"MDA","name":"Moldova, Republic of"},"450":{"cca2":"MG","cca3":"MDG","name":"Madagascar"},"462":{"cca2":"MV","cca3":"MDV","name":"Maldives"},"484":{"cca2":"MX","cca3":"MEX","name":"Mexico"},"584":{"cca2":"MH","cca3":"MHL","name":"Marshall Islands"},"807":{"cca2":"MK","cca3":"MKD","name":"North Macedonia"},"466":{"cca2":"ML","cca3":"MLI","name":"Mali"},"470":{"cca2":"MT","cca3":"MLT","name":"Malta"},"104":{"cca2":"MM","cca3":"MMR","name":"Myanmar"},"499":{"cca2":"ME","cca3":"MNE","name":"Montenegro"},"496":{"cca2":"MN","cca3":"MNG","name":"Mongolia"},"580":{"cca2":"MP","cca3":"MNP","name":"Northern Mariana Islands"},"508":{"cca2":"MZ","cca3":"MOZ","name":"Mozambique"},"478":{"cca2":"MR","cca3":"MRT","name":"Mauritania"},"500":{"cca2":"MS","cca3":"MSR","name":"Montserrat"},"474":{"cca2":"MQ","cca3":"MTQ","name":"Martinique"},"480":{"cca2":"MU","cca3":"MUS","name":"Mauritius"},"454":{"cca2":"MW","cca3":"MWI","name":"Malawi"},"458":{"cca2":"MY","cca3":"MYS","name":"Malaysia"},"175":{"cca2":"YT","cca3":"MYT","name":"Mayotte"},"516":{"cca2":"NA","cca3":"NAM","name":"Namibia"},"540":{"cca2":"NC","cca3":"NCL","name":"New Caledonia"},"562":{"cca2":"NE","cca3":"NER","name":"Niger"},"574":{"cca2":"NF","cca3":"NFK","name":"Norfolk Island"},"566":{"cca2":"NG","cca3":"NGA","name":"Nigeria"},"558":{"cca2":"NI","cca3":"NIC","name":"Nicaragua"},"570":{"cca2":"NU","cca3":"NIU","name":"Niue"},"528":{"cca2":"NL","cca3":"NLD","name":"Netherlands"},"578":{"cca2":"NO","cca3":"NOR","name":"Norway"},"524":{"cca2":"NP","cca3":"NPL","name":"Nepal"},"520":{"cca2":"NR","cca3":"NRU","name":"Nauru"},"554":{"cca2":"NZ","cca3":"NZL","name":"New Zealand"},"512":{"cca2":"OM","cca3":"OMN","name":"Oman"},"586":{"cca2":"PK","cca3":"PAK","name":"Pakistan"},"591":{"cca2":"PA","cca3":"PAN","name":"Panama"},"612":{"cca2":"PN","cca3":"PCN","name":"Pitcairn"},"604":{"cca2":"PE","cca3":"PER","name":"Peru"},"608":{"cca2":"PH","cca3":"PHL","name":"Philippines"},"585":{"cca2":"PW","cca3":"PLW","name":"Palau"},"598":{"cca2":"PG","cca3":"PNG","name":"Papua New Guinea"},"616":{"cca2":"PL","cca3":"POL","name":"Poland"},"630":{"cca2":"PR","cca3":"PRI","name":"Puerto Rico"},"408":{"cca2":"KP","cca3":"PRK","name":"Korea, Democratic People's Republic of"},"620":{"cca2":"PT","cca3":"PRT","name":"Portugal"},"600":{"cca2":"PY","cca3":"PRY","name":"Paraguay"},"275":{"cca2":"PS","cca3":"PSE","name":"Palestine, State of"},"258":{"cca2":"PF","cca3":"PYF","name":"French Polynesia"},"634":{"cca2":"QA","cca3":"QAT","name":"Qatar"},"638":{"cca2":"RE","cca3":"REU","name":"Réunion"},"642":{"cca2":"RO","cca3":"ROU","name":"Romania"},"643":{"cca2":"RU","cca3":"RUS","name":"Russian Federation"},"646":{"cca2":"RW","cca3":"RWA","name":"Rwanda"},"682":{"cca2":"SA","cca3":"SAU","name":"Saudi Arabia"},"729":{"cca2":"SD","cca3":"SDN","name":"Sudan"},"686":{"cca2":"SN","cca3":"SEN","name":"Senegal"},"702":{"cca2":"SG","cca3":"SGP","name":"Singapore"},"239":{"cca2":"GS","cca3":"SGS","name":"South Georgia and the South Sandwich Islands"},"654":{"cca2":"SH","cca3":"SHN","name":"Saint Helena, Ascension and Tristan da Cunha"},"744":{"cca2":"SJ","cca3":"SJM","name":"Svalbard and Jan Mayen"},"090":{"cca2":"SB","cca3":"SLB","name":"Solomon Islands"},"694":{"cca2":"SL","cca3":"SLE","name":"Sierra Leone"},"222":{"cca2":"SV","cca3":"SLV","name":"El Salvador"},"674":{"cca2":"SM","cca3":"SMR","name":"San Marino"},"706":{"cca2":"SO","cca3":"SOM","name":"Somalia"},"666":{"cca2":"PM","cca3":"SPM","name":"Saint Pierre and Miquelon"},"688":{"cca2":"RS","cca3":"SRB","name":"Serbia"},"728":{"cca2":"SS","cca3":"SSD","name":"South Sudan"},"678":{"cca2":"ST","cca3":"STP","name":"Sao Tome and Principe"},"740":{"cca2":"SR","cca3":"SUR","name":"Suriname"},"703":{"cca2":"SK","cca3":"SVK","name":"Slovakia"},"705":{"cca2":"SI","cca3":"SVN","name":"Slovenia"},"752":{"cca2":"SE","cca3":"SWE","name":"Sweden"},"748":{"cca2":"SZ","cca3":"SWZ","name":"Eswatini"},"534":{"cca2":"SX","cca3":"SXM","name":"Sint Maarten (Dutch part)"},"690":{"cca2":"SC","cca3":"SYC","name":"Seychelles"},"760":{"cca2":"SY","cca3":"SYR","name":"Syrian Arab Republic"},"796":{"cca2":"TC","cca3":"TCA","name":"Turks and Caicos Islands"},"148":{"cca2":"TD","cca3":"TCD","name":"Chad"},"768":{"cca2":"TG","cca3":"TGO","name":"Togo"},"764":{"cca2":"TH","cca3":"THA","name":"Thailand"},"762":{"cca2":"TJ","cca3":"TJK","name":"Tajikistan"},"772":{"cca2":"TK","cca3":"TKL","name":"Tokelau"},"795":{"cca2":"TM","cca3":"TKM","name":"Turkmenistan"},"626":{"cca2":"TL","cca3":"TLS","name":"Timor-Leste"},"776":{"cca2":"TO","cca3":"TON","name":"Tonga"},"780":{"cca2":"TT","cca3":"TTO","name":"Trinidad and Tobago"},"788":{"cca2":"TN","cca3":"TUN","name":"Tunisia"},"792":{"cca2":"TR","cca3":"TUR","name":"Türkiye"},"798":{"cca2":"TV","cca3":"TUV","name":"Tuvalu"},"158":{"cca2":"TW","cca3":"TWN","name":"Taiwan, Province of China"},"834":{"cca2":"TZ","cca3":"TZA","name":"Tanzania, United Republic of"},"800":{"cca2":"UG","cca3":"UGA","name":"Uganda"},"804":{"cca2":"UA","cca3":"UKR","name":"Ukraine"},"581":{"cca2":"UM","cca3":"UMI","name":"United States Minor Outlying Islands"},"858":{"cca2":"UY","cca3":"URY","name":"Uruguay"},"840":{"cca2":"US","cca3":"USA","name":"United States"},"860":{"cca2":"UZ","cca3":"UZB","name":"Uzbekistan"},"336":{"cca2":"VA","cca3":"VAT","name":"Holy See (Vatican City State)"},"670":{"cca2":"VC","cca3":"VCT","name":"Saint Vincent and the Grenadines"},"862":{"cca2":"VE","cca3":"VEN","name":"Venezuela, Bolivarian Republic of"},"092":{"cca2":"VG","cca3":"VGB","name":"Virgin Islands, British"},"850":{"cca2":"VI","cca3":"VIR","name":"Virgin Islands, U.S."},"704":{"cca2":"VN","cca3":"VNM","name":"Viet Nam"},"548":{"cca2":"VU","cca3":"VUT","name":"Vanuatu"},"876":{"cca2":"WF","cca3":"WLF","name":"Wallis and Futuna"},"882":{"cca2":"WS","cca3":"WSM","name":"Samoa"},"887":{"cca2":"YE","cca3":"YEM","name":"Yemen"},"710":{"cca2":"ZA","cca3":"ZAF","name":"South Africa"},"894":{"cca2":"ZM","cca3":"ZMB","name":"Zambia"},"716":{"cca2":"ZW","cca3":"ZWE","name":"Zimbabwe"}};
-const POPULATION_2023 = Object.freeze({"AFG":41454762,"ALB":2811660,"DZA":46164222,"ASM":47544,"AND":80869,"AGO":36749909,"AIA":14435,"ATG":93331,"ARG":45538402,"ARM":2943398,"ABW":107946,"AUS":26451126,"AUT":9130434,"AZE":10318209,"BHS":399452,"BHR":1569674,"BGD":171466986,"BRB":282347,"BLR":9115679,"BEL":11712891,"BLZ":411112,"BEN":14111035,"BMU":64721,"BTN":786386,"BOL":12244161,"BES":29920,"BIH":3185072,"BWA":2480242,"BRA":211140731,"VGB":39009,"BRN":458959,"BGR":6795805,"BFA":23025777,"BDI":13689455,"KHM":17423884,"CMR":28372690,"CAN":39299098,"CPV":522335,"CYM":73055,"CAF":5152415,"TCD":19319075,"CHL":19658833,"CHN":1422584930,"COL":52321152,"COM":850390,"COG":6182890,"COK":14244,"CRI":5105526,"CIV":31165653,"HRV":3896023,"CUB":11019932,"CUW":185437,"CYP":1344981,"CZE":10809722,"COD":105789733,"DNK":5948134,"DJI":1152951,"DMA":66531,"DOM":11331269,"TLS":1384292,"ECU":17980079,"EGY":114535772,"SLV":6309629,"GNQ":1847556,"ERI":3470391,"EST":1367195,"SWZ":1230507,"ETH":128691695,"FLK":3498,"FRO":54738,"FJI":924150,"FIN":5601185,"FRA":66438828,"GUF":303408,"PYF":281125,"GAB":2484790,"GMB":2697846,"GEO":3807494,"DEU":84548233,"GHA":33787916,"GIB":38493,"GRC":10242910,"GRL":55951,"GRD":117094,"GLP":376518,"GUM":166522,"GTM":18124841,"GGY":64043,"GIN":14405469,"GNB":2153343,"GUY":826357,"HTI":11637402,"HND":10644853,"HKG":7442738,"HUN":9686465,"ISL":387559,"IND":1438069597,"IDN":281190068,"IRN":90608708,"IRQ":45074055,"IRL":5196629,"IMN":84182,"ISR":9256311,"ITA":59499452,"JAM":2839785,"JPN":124370947,"JEY":103680,"JOR":11439220,"KAZ":20330109,"KEN":55339007,"KIR":132540,"KWT":4838781,"KGZ":7073523,"LAO":7665001,"LVA":1882399,"LBN":5773494,"LSO":2311476,"LBR":5493035,"LBY":7305659,"LIE":39622,"LTU":2854104,"LUX":665101,"MAC":713916,"MDG":31195937,"MWI":21104480,"MYS":35126295,"MDV":526009,"MLI":23769130,"MLT":532964,"MHL":38849,"MTQ":346008,"MRT":5022442,"MUS":1273591,"MYT":316028,"MEX":129739761,"FSM":112646,"MDA":3067072,"MCO":38979,"MNG":3431938,"MNE":633553,"MSR":4440,"MAR":37712516,"MOZ":33635163,"MMR":54133800,"NAM":2963102,"NRU":11900,"NPL":29694614,"NLD":18092526,"NCL":289879,"NZL":5172837,"NIC":6823619,"NER":26159863,"NGA":227882949,"NIU":1841,"PRK":26418196,"MKD":1831800,"MNP":45166,"NOR":5519167,"OMN":5049267,"PAK":247504505,"PLW":17751,"PSE":5409201,"PAN":4458758,"PNG":10389638,"PRY":6844150,"PER":33845616,"PHL":114891199,"POL":38762847,"PRT":10430735,"PRI":3242022,"QAT":2979086,"REU":874883,"ROU":19118482,"RUS":145440502,"RWA":13954473,"BLM":11112,"SHN":5316,"KNA":46783,"LCA":179291,"MAF":27545,"SPM":5707,"VCT":101331,"WSM":216673,"SMR":33761,"STP":230882,"SAU":33264289,"SEN":18077573,"SRB":6773204,"SYC":127961,"SLE":8460523,"SGP":5789092,"SXM":42775,"SVK":5518057,"SVN":2118394,"SLB":800014,"SOM":18358622,"ZAF":63212386,"KOR":51748744,"SSD":11483370,"ESP":47911583,"LKA":22971615,"SDN":50042800,"SUR":628892,"SWE":10551493,"CHE":8870564,"SYR":23594623,"TWN":23317145,"TJK":10389807,"TZA":66617607,"THA":71702436,"TGO":8223853,"TKL":2424,"TON":104613,"TTO":1502938,"TUN":12200434,"TUR":87270502,"TKM":7364437,"TCA":46221,"TUV":9837,"UGA":48656606,"UKR":37732833,"ARE":10642089,"GBR":68682965,"USA":343477330,"VIR":85712,"URY":3388083,"UZB":35652311,"VUT":320422,"VAT":501,"VEN":28300861,"VNM":100352189,"WLF":11394,"ESH":579734,"YEM":39390800,"ZMB":20723967,"ZWE":16340829});
-const $ = id => document.getElementById(id);
 
-const svg = d3.select("#map");
-const g = svg.append("g");
-const graticuleG = g.append("path").attr("class", "graticule");
-const sphereG = g.append("path").attr("class", "sphere");
-const countriesG = g.append("g");
+/* =========================================================
+ * Built-in salary data
+ *
+ * Gross monthly salary reference, USD/month.
+ *
+ * Major economies are embedded so salary does NOT depend on
+ * ILOSTAT every time the user clicks a country.
+ * ========================================================= */
 
-let width=0, height=0, worldFeatures=[], countryByNumeric=new Map(), countryByAlpha3=new Map();
-let hdiByCode=new Map(), hdiHistory=new Map(), hdiYears=[], selectedHdiYear=null, latestHdiYear=null, selectedPath=null, selectedCountry=null, playTimer=null;
-let fxCache=new Map(), tempCache=new Map(), salaryCache=new Map();
+const SALARY_USD = Object.freeze({
 
-const projection = d3.geoNaturalEarth1();
-const path = d3.geoPath(projection);
-const zoom = d3.zoom().scaleExtent([1, 9]).on("zoom", e => g.attr("transform", e.transform));
-svg.call(zoom);
+    USA: 6228,
+    CAN: 4065,
+    MEX: 950,
 
-const hdiColor = d3.scaleLinear()
-    .domain([0.40,0.55,0.70,0.85,1.0])
-    .range(["#7f1d1d","#b45309","#ca8a04","#059669","#7c3aed"])
-    .clamp(true);
+    BRA: 633,
+    ARG: 793,
+    CHL: 817,
+    COL: 533,
+    PER: 598,
+    URY: 1273,
+    CRI: 1211,
+    PAN: 1100,
 
-function resize() {
-    const r = $("map").getBoundingClientRect();
-    width=r.width; height=r.height;
-    svg.attr("viewBox", [0,0,width,height]);
-    projection.fitExtent([[12,12],[width-12,height-12]], {type:"Sphere"});
-    sphereG.attr("d", path({type:"Sphere"}));
-    graticuleG.attr("d", path(d3.geoGraticule10()));
-    countriesG.selectAll("path").attr("d", path);
-}
-window.addEventListener("resize", resize);
+    GBR: 4366,
+    IRL: 4996,
 
-function setStatus(text, strong="就緒") {
-    $("status").innerHTML = `<b>${strong}</b> · ${text}`;
-}
-function safe(v, fallback="—") { return (v===null || v===undefined || v==="") ? fallback : v; }
-const regionNamesZhTW = (() => {
-    try { return new Intl.DisplayNames(["zh-TW"], { type: "region" }); }
-    catch (_) { return null; }
-})();
-const languageNamesZhTW = (() => {
-    try { return new Intl.DisplayNames(["zh-TW"], { type: "language" }); }
-    catch (_) { return null; }
-})();
-const currencyNamesZhTW = (() => {
-    try { return new Intl.DisplayNames(["zh-TW"], { type: "currency" }); }
-    catch (_) { return null; }
-})();
+    FRA: 4020,
+    DEU: 5494,
+    ITA: 2986,
+    ESP: 2814,
+    PRT: 1780,
 
-const COUNTRY_OVERRIDES = {
-    TWN: {
-        zh: "臺灣",
-        capitalZh: "臺北",
-        capitalEn: "Taipei",
-        population: 23243565,
-        populationYear: "2026-06",
-        salaryTwd: 62579,
-        salaryYear: "2026-05",
-        peakZh: "玉山",
-        peakEn: "Yushan",
-        peakM: 3952
+    NLD: 4479,
+    BEL: 4463,
+    LUX: 6432,
+
+    CHE: 9628,
+    AUT: 4364,
+
+    DNK: 6914,
+    NOR: 5789,
+    SWE: 4182,
+    FIN: 4479,
+    ISL: 6443,
+
+    POL: 2343,
+    CZE: 2111,
+    SVK: 1815,
+    HUN: 2223,
+
+    ROU: 1576,
+    BGR: 1325,
+    GRC: 1608,
+
+    EST: 2240,
+    LVA: 1838,
+    LTU: 2412,
+
+    SVN: 2642,
+    HRV: 1895,
+    SRB: 1023,
+    MNE: 1378,
+
+    TWN: 1865,
+
+    JPN: 2486,
+    KOR: 2743,
+
+    CHN: 1532,
+    HKG: 2614,
+
+    SGP: 4514,
+
+    MYS: 979,
+    THA: 470,
+    VNM: 315,
+    PHL: 326,
+    IDN: 194,
+
+    IND: 334,
+    PAK: 140,
+    BGD: 149,
+    LKA: 184,
+    NPL: 234,
+
+    KHM: 300,
+    MMR: 214,
+
+    MNG: 556,
+    KAZ: 805,
+    UZB: 439,
+
+    AUS: 5497,
+    NZL: 3322,
+
+    ARE: 4357,
+    QAT: 3221,
+    SAU: 2800,
+    KWT: 3909,
+    BHR: 2261,
+    OMN: 2208,
+
+    ISR: 3925,
+
+    TUR: 546,
+
+    RUS: 1034,
+    UKR: 478,
+
+    ZAF: 1599,
+
+    EGY: 135,
+    MAR: 613,
+    DZA: 406,
+
+    NGA: 220,
+    KEN: 326,
+    GHA: 236,
+    ETH: 51,
+
+    IRN: 588,
+    IRQ: 536,
+    JOR: 865,
+    LBN: 302,
+
+    GEO: 850,
+    ARM: 803,
+    AZE: 647
+});
+
+
+/* =========================================================
+ * Taiwan overrides
+ * ========================================================= */
+
+const TAIWAN = {
+
+    cca3: "TWN",
+
+    population: 23317145,
+
+    salaryTwd: 58000,
+
+    peakZh: "玉山",
+
+    peakEn: "Yushan",
+
+    peakM: 3952,
+
+    capitalZh: "臺北",
+
+    capitalEn: "Taipei"
+};
+
+
+/* =========================================================
+ * Helpers
+ * ========================================================= */
+
+const $ = id =>
+    document.getElementById(id);
+
+
+const fmtInt =
+    new Intl.NumberFormat(
+        "zh-TW",
+        {
+            maximumFractionDigits: 0
+        }
+    );
+
+
+const fmt1 =
+    new Intl.NumberFormat(
+        "zh-TW",
+        {
+            maximumFractionDigits: 1
+        }
+    );
+
+
+const regionNames = (() => {
+
+    try {
+
+        return new Intl.DisplayNames(
+            ["zh-TW"],
+            {
+                type: "region"
+            }
+        );
+
+    } catch {
+
+        return null;
     }
-};
+
+})();
+
+
+const languageNames = (() => {
+
+    try {
+
+        return new Intl.DisplayNames(
+            ["zh-TW"],
+            {
+                type: "language"
+            }
+        );
+
+    } catch {
+
+        return null;
+    }
+
+})();
+
+
+const currencyNames = (() => {
+
+    try {
+
+        return new Intl.DisplayNames(
+            ["zh-TW"],
+            {
+                type: "currency"
+            }
+        );
+
+    } catch {
+
+        return null;
+    }
+
+})();
+
+
+function setStatus(
+    text,
+    title = "就緒"
+) {
+
+    $("status").innerHTML =
+        `<b>${title}</b> · ${text}`;
+}
+
 
 function countryZh(c) {
-    const override = COUNTRY_OVERRIDES[c?.cca3]?.zh;
-    if (override) return override;
-    if (c?.cca2 && regionNamesZhTW) {
+
+    if (c?.cca3 === "TWN") {
+        return "臺灣";
+    }
+
+    if (
+        c?.cca2 &&
+        regionNames
+    ) {
+
         try {
-            const s = regionNamesZhTW.of(c.cca2);
-            if (s && s !== c.cca2) return s;
-        } catch (_) {}
+
+            const value =
+                regionNames.of(
+                    c.cca2
+                );
+
+            if (
+                value &&
+                value !== c.cca2
+            ) {
+                return value;
+            }
+
+        } catch {
+        }
     }
-    // Avoid simplified-Chinese fallback. English is preferred if zh-TW is unavailable.
-    return c?.name?.common || "—";
+
+    return (
+        c?.name?.common ||
+        "—"
+    );
 }
 
-function languageZh(code, fallback) {
-    if (languageNamesZhTW && code) {
+
+function languageZh(
+    code,
+    fallback
+) {
+
+    if (
+        languageNames &&
+        code
+    ) {
+
         try {
-            const s = languageNamesZhTW.of(code);
-            if (s && s !== code) return s;
-        } catch (_) {}
+
+            const value =
+                languageNames.of(
+                    code
+                );
+
+            if (
+                value &&
+                value !== code
+            ) {
+                return value;
+            }
+
+        } catch {
+        }
     }
-    return fallback || code || "—";
+
+    return (
+        fallback ||
+        code ||
+        "—"
+    );
 }
 
-function currencyZh(code, fallback) {
-    if (currencyNamesZhTW && code) {
+
+function currencyZh(
+    code,
+    fallback
+) {
+
+    if (
+        currencyNames &&
+        code
+    ) {
+
         try {
-            const s = currencyNamesZhTW.of(code);
-            if (s && s !== code) return s;
-        } catch (_) {}
-    }
-    return fallback || code || "—";
-}
 
-function flagUrl(c) {
-    return c?.cca2 ? `https://flagcdn.com/${c.cca2.toLowerCase()}.svg` : "";
-}
+            const value =
+                currencyNames.of(
+                    code
+                );
 
-function flagFallbackUrl(c) {
-    return c?.cca2 ? `https://flagsapi.com/${c.cca2.toUpperCase()}/flat/64.png` : "";
-}
+            if (
+                value &&
+                value !== code
+            ) {
+                return value;
+            }
 
-function countryForFeature(f) {
-    const numeric = String(f?.id ?? "").padStart(3, "0");
-    const cached = countryByNumeric.get(numeric);
-    if (cached) return cached;
-
-    const iso = ISO_COUNTRIES[numeric];
-    if (iso) {
-        return {
-            ccn3: numeric,
-            cca2: iso.cca2,
-            cca3: iso.cca3,
-            name: { common: iso.name },
-            translations: {},
-            population: POPULATION_2023[iso.cca3] ?? null,
-            area: null,
-            capital: [],
-            languages: {},
-            currencies: {},
-            latlng: [0, 0]
-        };
+        } catch {
+        }
     }
 
-    return {
-        ccn3: numeric,
-        cca3: null,
-        cca2: null,
-        name: { common: f?.properties?.name || "Unknown" },
-        translations: {},
-        population: null,
-        area: null,
-        capital: [],
-        languages: {},
-        currencies: {},
-        latlng: [0, 0]
-    };
+    return (
+        fallback ||
+        code ||
+        "—"
+    );
 }
 
-function hdiLabel(v) {
-    if (v == null || Number.isNaN(v)) return "資料缺值";
-    if (v >= .8) return "非常高人類發展";
-    if (v >= .7) return "高人類發展";
-    if (v >= .55) return "中度人類發展";
+
+function hdiLabel(value) {
+
+    if (!Number.isFinite(value)) {
+        return "";
+    }
+
+    if (value >= 0.8) {
+        return "非常高人類發展";
+    }
+
+    if (value >= 0.7) {
+        return "高人類發展";
+    }
+
+    if (value >= 0.55) {
+        return "中度人類發展";
+    }
+
     return "低人類發展";
 }
 
-function closestHdiForYear(code, year) {
-    const series = hdiHistory.get(code);
-    if (!series) return null;
-    if (series.has(year)) return series.get(year);
 
-    // Some countries have gaps. Use the closest earlier value, never a future value.
-    const years = [...series.keys()].filter(y => y <= year).sort((a,b) => b-a);
-    return years.length ? series.get(years[0]) : null;
+/* =========================================================
+ * State
+ * ========================================================= */
+
+const svg =
+    d3.select("#map");
+
+
+const mapRoot =
+    svg.append("g");
+
+
+const spherePath =
+    mapRoot
+        .append("path")
+        .attr("class", "sphere");
+
+
+const graticulePath =
+    mapRoot
+        .append("path")
+        .attr("class", "graticule");
+
+
+const countriesRoot =
+    mapRoot.append("g");
+
+
+const projection =
+    d3.geoNaturalEarth1();
+
+
+const geoPath =
+    d3.geoPath(
+        projection
+    );
+
+
+const zoom =
+    d3.zoom()
+        .scaleExtent(
+            [1, 9]
+        )
+        .on(
+            "zoom",
+            event => {
+
+                mapRoot.attr(
+                    "transform",
+                    event.transform
+                );
+            }
+        );
+
+
+svg.call(zoom);
+
+
+let worldFeatures = [];
+
+let countries = [];
+
+let countryByNumeric =
+    new Map();
+
+let countryByAlpha3 =
+    new Map();
+
+let hdiHistory =
+    new Map();
+
+let hdiCurrent =
+    new Map();
+
+let hdiYears = [];
+
+let currentHdiYear =
+    null;
+
+let selectedNode =
+    null;
+
+let selectedCountry =
+    null;
+
+let playTimer =
+    null;
+
+const fxCache =
+    new Map();
+
+
+/* =========================================================
+ * HDI color
+ * ========================================================= */
+
+const hdiColor =
+    d3.scaleLinear()
+        .domain([
+            0.40,
+            0.55,
+            0.70,
+            0.85,
+            1.00
+        ])
+        .range([
+            "#7f1d1d",
+            "#b45309",
+            "#ca8a04",
+            "#059669",
+            "#7c3aed"
+        ])
+        .clamp(true);
+
+
+/* =========================================================
+ * Resize
+ * ========================================================= */
+
+function resize() {
+
+    const rect =
+        $("map")
+            .getBoundingClientRect();
+
+
+    const width =
+        rect.width;
+
+
+    const height =
+        rect.height;
+
+
+    svg.attr(
+        "viewBox",
+        [
+            0,
+            0,
+            width,
+            height
+        ]
+    );
+
+
+    projection.fitExtent(
+        [
+            [12, 12],
+            [
+                width - 12,
+                height - 12
+            ]
+        ],
+        {
+            type: "Sphere"
+        }
+    );
+
+
+    spherePath.attr(
+        "d",
+        geoPath(
+            {
+                type: "Sphere"
+            }
+        )
+    );
+
+
+    graticulePath.attr(
+        "d",
+        geoPath(
+            d3.geoGraticule10()
+        )
+    );
+
+
+    countriesRoot
+        .selectAll("path")
+        .attr(
+            "d",
+            geoPath
+        );
 }
 
-function applyHdiYear(year, animate=true) {
-    if (!Number.isFinite(+year)) return;
-    selectedHdiYear = +year;
-    hdiByCode = new Map();
-    for (const code of hdiHistory.keys()) {
-        const v = closestHdiForYear(code, selectedHdiYear);
-        if (v != null) hdiByCode.set(code, v);
+
+window.addEventListener(
+    "resize",
+    resize
+);
+
+
+/* =========================================================
+ * Country lookup
+ * ========================================================= */
+
+function countryForFeature(feature) {
+
+    const numeric =
+        String(
+            feature.id
+        )
+            .padStart(
+                3,
+                "0"
+            );
+
+
+    return (
+        countryByNumeric.get(
+            numeric
+        ) ||
+        null
+    );
+}
+
+
+/* =========================================================
+ * HDI
+ * ========================================================= */
+
+function hdiForYear(
+    code,
+    year
+) {
+
+    const history =
+        hdiHistory.get(
+            code
+        );
+
+
+    if (!history) {
+        return null;
     }
 
-    $("yearValue").textContent = selectedHdiYear;
-    $("hdiYear").textContent = `${selectedHdiYear} 年`;
 
-    const sel = countriesG.selectAll("path");
-    const target = animate ? sel.transition().duration(240) : sel;
-    target.attr("fill", fillForFeature);
+    if (
+        history.has(
+            year
+        )
+    ) {
+
+        return history.get(
+            year
+        );
+    }
+
+
+    const previousYears =
+        [...history.keys()]
+            .filter(
+                value =>
+                    value <= year
+            )
+            .sort(
+                (a, b) =>
+                    b - a
+            );
+
+
+    if (!previousYears.length) {
+        return null;
+    }
+
+
+    return history.get(
+        previousYears[0]
+    );
+}
+
+
+function applyHdiYear(year) {
+
+    currentHdiYear =
+        Number(year);
+
+
+    hdiCurrent =
+        new Map();
+
+
+    for (
+        const code
+        of hdiHistory.keys()
+    ) {
+
+        const value =
+            hdiForYear(
+                code,
+                currentHdiYear
+            );
+
+
+        if (
+            Number.isFinite(
+                value
+            )
+        ) {
+
+            hdiCurrent.set(
+                code,
+                value
+            );
+        }
+    }
+
+
+    $("yearValue").textContent =
+        currentHdiYear;
+
+
+    $("hdiYear").textContent =
+        `${currentHdiYear} 年`;
+
+
+    countriesRoot
+        .selectAll("path")
+        .transition()
+        .duration(220)
+        .attr(
+            "fill",
+            feature => {
+
+                const c =
+                    countryForFeature(
+                        feature
+                    );
+
+
+                if (!c) {
+                    return "#3b4655";
+                }
+
+
+                const value =
+                    hdiCurrent.get(
+                        c.cca3
+                    );
+
+
+                if (
+                    !Number.isFinite(
+                        value
+                    )
+                ) {
+
+                    return "#3b4655";
+                }
+
+
+                return hdiColor(
+                    value
+                );
+            }
+        );
+
 
     if (selectedCountry) {
-        const h = hdiByCode.get(selectedCountry.cca3);
-        $("hdiPill").textContent = `HDI：${h?.toFixed(3) ?? "—"}${h ? ` · ${hdiLabel(h)}` : ""} · ${selectedHdiYear}`;
+
+        updateHdiPill(
+            selectedCountry
+        );
     }
 }
 
-function fillForFeature(f) {
-    const c = countryForFeature(f);
-    const h = c ? hdiByCode.get(c.cca3) : null;
-    return h == null ? "#3a4656" : hdiColor(h);
-}
 
-async function loadCountryMetadata() {
-    const CACHE_KEY = "world_map_country_metadata_v2";
+function updateHdiPill(c) {
 
-    function applyCountries(countries) {
-        if (!Array.isArray(countries)) throw new Error("Country dataset format error");
+    const value =
+        hdiCurrent.get(
+            c.cca3
+        );
 
-        countryByNumeric.clear();
-        countryByAlpha3.clear();
 
-        countries.forEach(c => {
-            if (c.ccn3) countryByNumeric.set(String(c.ccn3).padStart(3, "0"), c);
-            if (c.cca3) countryByAlpha3.set(c.cca3, c);
-        });
+    if (
+        Number.isFinite(
+            value
+        )
+    ) {
 
-        if (selectedHdiYear != null && hdiHistory.size) {
-            applyHdiYear(selectedHdiYear, true);
-        }
-    }
+        $("hdiPill").textContent =
+            `HDI：${value.toFixed(3)} · ${hdiLabel(value)} · ${currentHdiYear}`;
 
-    // Build an always-available ISO fallback index first.
-    Object.entries(ISO_COUNTRIES).forEach(([numeric, iso]) => {
-        const c = {
-            ccn3: numeric,
-            cca2: iso.cca2,
-            cca3: iso.cca3,
-            name: { common: iso.name },
-            translations: {},
-            population: POPULATION_2023[iso.cca3] ?? null,
-            area: null,
-            capital: [],
-            languages: {},
-            currencies: {},
-            latlng: [0, 0]
-        };
-        countryByNumeric.set(numeric, c);
-        countryByAlpha3.set(iso.cca3, c);
-    });
-
-    // Then upgrade with cached full metadata if available.
-    try {
-        const cached = localStorage.getItem(CACHE_KEY);
-        if (cached) applyCountries(JSON.parse(cached));
-    } catch (err) {
-        console.warn("Country cache unavailable:", err);
-    }
-
-    // Finally refresh from CDN. Failure no longer breaks country identity.
-    try {
-        const countries = await d3.json(URLS.countries);
-        applyCountries(countries);
-        try {
-            localStorage.setItem(CACHE_KEY, JSON.stringify(countries));
-        } catch (err) {
-            console.warn("Country cache save skipped:", err);
-        }
-        setStatus(`${worldFeatures.length} 個地理區域 · 國家詳細資料完成 · ${selectedHdiYear ? `HDI ${selectedHdiYear}` : "HDI 載入中"}`);
-        return true;
-    } catch (err) {
-        console.error("Country metadata failed:", err);
-        setStatus("核心國家資料正常；詳細欄位暫時使用內建 ISO 資料", "使用備援");
-        return false;
-    }
-}
-
-async function loadHdiData() {
-    try {
-        const hdiRows = await d3.csv(URLS.hdi);
-        const validHdiRows = hdiRows.filter(r => r.Code && Number.isFinite(+r.Year));
-        if (!validHdiRows.length) throw new Error("HDI dataset is empty");
-
-        const hdiKey =
-            Object.keys(validHdiRows[0]).find(k => /human development index/i.test(k)) ||
-            Object.keys(validHdiRows[0]).find(k => !["Entity", "Code", "Year"].includes(k));
-
-        hdiHistory.clear();
-
-        for (const r of validHdiRows) {
-            const val = +(r[hdiKey]);
-            const year = +r.Year;
-            if (!Number.isFinite(val)) continue;
-            if (!hdiHistory.has(r.Code)) hdiHistory.set(r.Code, new Map());
-            hdiHistory.get(r.Code).set(year, val);
-        }
-
-        // Taiwan is not listed in UNDP's country table. DGBAS calculates it
-        // using the same international HDI methodology.
-        if (!hdiHistory.has("TWN")) hdiHistory.set("TWN", new Map());
-        hdiHistory.get("TWN").set(2019, 0.916);
-        hdiHistory.get("TWN").set(2021, 0.926);
-        hdiHistory.get("TWN").set(2023, 0.934);
-
-        hdiYears = [...new Set(validHdiRows.map(r => +r.Year))]
-            .filter(Number.isFinite)
-            .sort((a, b) => a - b);
-
-        latestHdiYear = hdiYears.at(-1);
-        if (!latestHdiYear) throw new Error("No HDI years found");
-
-        selectedHdiYear = latestHdiYear;
-        $("yearSlider").min = hdiYears[0];
-        $("yearSlider").max = latestHdiYear;
-        $("yearSlider").value = latestHdiYear;
-        $("yearMin").textContent = hdiYears[0];
-        $("yearMax").textContent = latestHdiYear;
-        $("yearValue").textContent = latestHdiYear;
-        $("yearSlider").disabled = false;
-        $("play").disabled = false;
-
-        applyHdiYear(latestHdiYear, true);
-        setStatus(`${worldFeatures.length} 個地理區域 · HDI ${latestHdiYear} · 拖曳年份查看歷史變化`);
-        return true;
-    } catch (err) {
-        console.error("HDI failed:", err);
-        $("yearValue").textContent = "—";
-        $("hdiYear").textContent = "資料暫缺";
-        $("yearSlider").disabled = true;
-        $("play").disabled = true;
-        setStatus("世界地圖已顯示；HDI 資料目前無法取得", "HDI 載入失敗");
-        return false;
-    }
-}
-
-async function loadBaseData() {
-    $("yearSlider").disabled = true;
-    $("play").disabled = true;
-
-    // Critical path: render geography first. Auxiliary datasets must never block the map.
-    try {
-        setStatus("正在載入世界國界…", "載入中");
-        const world = await d3.json(URLS.world);
-        worldFeatures = topojson.feature(world, world.objects.countries).features;
-
-        drawCountries();
-        resize();
-        setStatus(`${worldFeatures.length} 個地理區域 · 正在載入 HDI 與國家資料…`, "地圖完成");
-    } catch (err) {
-        console.error("World geometry failed:", err);
-        setStatus("世界國界資料無法取得，請稍後重新整理", "地圖載入失敗");
-        $("errorBanner").style.display = "block";
-        $("errorBanner").textContent =
-            "世界地圖幾何資料載入失敗。這通常是 CDN 暫時無法連線；請稍後重新整理頁面。";
-        return;
-    }
-
-    // Non-critical paths: independent, so one failure doesn't blank the map.
-    const results = await Promise.allSettled([
-        loadCountryMetadata(),
-        loadHdiData()
-    ]);
-
-    const failed = results.filter(r => r.status === "rejected");
-    if (failed.length) console.warn("Some auxiliary datasets failed:", failed);
-}
-
-function drawCountries() {
-    countriesG.selectAll("path")
-        .data(worldFeatures)
-        .join("path")
-        .attr("class","country")
-        .attr("d",path)
-        .attr("fill",fillForFeature)
-        .on("mousemove", (event,d) => {
-            const c = countryForFeature(d);
-            const h = c ? hdiByCode.get(c.cca3) : null;
-            const tip=$("tooltip");
-            const yearText = selectedHdiYear ?? "—";
-            tip.innerHTML=`<strong>${countryZh(c)} · ${c.name.common}</strong><span>HDI ${yearText}：${h?.toFixed(3) ?? "—"} ${h ? "· "+hdiLabel(h) : ""}</span>`;
-            tip.style.left=event.clientX+"px"; tip.style.top=event.clientY+"px"; tip.style.opacity=1;
-        })
-        .on("mouseleave", () => $("tooltip").style.opacity=0)
-        .on("click", (event,d) => {
-            event.stopPropagation();
-            const c = countryForFeature(d);
-            openCountry(c, event.currentTarget);
-        });
-
-    svg.on("click", () => {});
-}
-
-async function openCountry(c, node) {
-    selectedCountry=c;
-    if (selectedPath) d3.select(selectedPath).classed("selected",false);
-    selectedPath=node; d3.select(node).classed("selected",true);
-
-    $("nameZh").textContent=countryZh(c);
-    $("nameEn").textContent=c.name.common;
-    $("flag").dataset.fallbackUsed = "0";
-    $("flag").src = flagUrl(c);
-    $("flag").alt = `${countryZh(c)}國旗`;
-    $("flag").onerror = () => {
-        if ($("flag").dataset.fallbackUsed === "0" && flagFallbackUrl(c)) {
-            $("flag").dataset.fallbackUsed = "1";
-            $("flag").src = flagFallbackUrl(c);
-            return;
-        }
-        $("flag").removeAttribute("src");
-        $("flag").alt = `${countryZh(c)}國旗暫時無法載入`;
-    };
-    const h=hdiByCode.get(c.cca3);
-    $("hdiPill").textContent=`HDI：${h?.toFixed(3) ?? "—"}${h ? ` · ${hdiLabel(h)}` : ""}${selectedHdiYear ? ` · ${selectedHdiYear}` : ""}`;
-    $("area").textContent = Number.isFinite(+c.area) ? fmtInt.format(+c.area) : "—";
-    const popOverride = COUNTRY_OVERRIDES[c.cca3];
-    const embeddedPopulation = POPULATION_2023[c.cca3];
-
-    if (popOverride?.population) {
-        $("population").textContent = fmtInt.format(popOverride.population);
-        $("populationNote").textContent = `官方人口資料 · ${popOverride.populationYear}`;
-    } else if (Number.isFinite(embeddedPopulation)) {
-        $("population").textContent = fmtInt.format(embeddedPopulation);
-        $("populationNote").textContent = "UN World Population Prospects · 2023";
     } else {
-        $("population").textContent = "資料暫缺";
-        $("populationNote").textContent = "UN WPP 2023 未收錄此地理區域";
+
+        $("hdiPill").textContent =
+            `HDI：— · ${currentHdiYear}`;
     }
-
-    const langs = Object.entries(c.languages || {});
-    $("languages").textContent = langs.length
-        ? langs.map(([code, name]) => languageZh(code, name)).join("、")
-        : "—";
-
-    const currencies = Object.entries(c.currencies || {});
-    $("currency").textContent = currencies.length
-        ? currencies.map(([code,v]) => `${currencyZh(code, v.name)}（${code}${v.symbol ? ` · ${v.symbol}`:""}）`).join("、")
-        : "—";
-
-    const override = COUNTRY_OVERRIDES[c.cca3];
-    $("capital").textContent = override
-        ? `${override.capitalZh} · ${override.capitalEn}`
-        : (c.capital?.length ? c.capital.join("、") : "—");
-
-    ["salary","peak"].forEach(id => { $(id).classList.add("loading"); $(id).textContent="查詢中"; });
-    ["spring","summer","autumn","winter"].forEach(id => $(id).textContent="…");
-    $("salaryNote").textContent="ILOSTAT 平均月薪；依資料年度與可用幣別換算";
-    $("peakNote").textContent="Wikidata 結構化資料";
-    $("tempNote").textContent="ERA5 國土平均地表氣溫；1991–2020 氣候平均";
-    $("errorBanner").style.display="none";
-    $("info").classList.add("open");
-
-    if (!c.cca3) {
-        ["salary", "peak"].forEach(id => {
-            $(id).classList.remove("loading");
-            $(id).textContent = "國家資料載入中";
-        });
-        ["spring","summer","autumn","winter"].forEach(id => $(id).textContent = "—");
-        $("salaryNote").textContent = "請稍後再點一次此國家";
-        $("peakNote").textContent = "請稍後再點一次此國家";
-        $("tempNote").textContent = "請稍後再點一次此國家";
-        return;
-    }
-
-    Promise.allSettled([
-        loadSalary(c),
-        loadPeak(c),
-        loadTemperature(c)
-    ]).then(results => {
-        const failed=results.filter(r=>r.status==="rejected");
-        if (failed.length) console.warn("部分延伸資料查詢失敗",failed);
-    });
 }
 
-$("close").onclick=() => {
-    $("info").classList.remove("open");
-    if(selectedPath) d3.select(selectedPath).classed("selected",false);
-    selectedPath=null;
-};
-$("reset").onclick=() => svg.transition().duration(650).call(zoom.transform,d3.zoomIdentity);
+
+/* =========================================================
+ * Load country metadata
+ * ========================================================= */
+
+async function loadCountryData() {
+
+    const cacheKey =
+        "world_map_countries_v3";
 
 
-$("yearSlider").addEventListener("input", e => {
-    applyHdiYear(+e.target.value, true);
-});
+    let cached = null;
 
-$("play").addEventListener("click", () => {
-    if (playTimer) {
-        clearInterval(playTimer);
-        playTimer = null;
-        $("play").textContent = "▶";
-        $("play").title = "播放 HDI 年份演進";
-        return;
-    }
-
-    $("play").textContent = "Ⅱ";
-    $("play").title = "暫停";
-    let index = Math.max(0, hdiYears.indexOf(selectedHdiYear));
-    if (index >= hdiYears.length - 1) index = -1;
-
-    playTimer = setInterval(() => {
-        index++;
-        if (index >= hdiYears.length) {
-            clearInterval(playTimer);
-            playTimer = null;
-            $("play").textContent = "▶";
-            $("play").title = "播放 HDI 年份演進";
-            return;
-        }
-        const year = hdiYears[index];
-        $("yearSlider").value = year;
-        applyHdiYear(year, true);
-    }, 520);
-});
-
-$("search").addEventListener("keydown", e => {
-    if(e.key!=="Enter") return;
-    const q=e.target.value.trim().toLowerCase();
-    if(!q) return;
-    if (!countryByAlpha3.size) {
-        setStatus("國家索引仍在載入，請稍後再搜尋", "搜尋");
-        return;
-    }
-    const c=[...countryByAlpha3.values()].find(c =>
-        c.name.common.toLowerCase().includes(q) ||
-        c.name.official.toLowerCase().includes(q) ||
-        countryZh(c).includes(e.target.value.trim()) ||
-        c.cca3.toLowerCase()===q
-    );
-    if(!c) { setStatus(`找不到「${e.target.value.trim()}」`,"搜尋"); return; }
-    const f=worldFeatures.find(f=>String(f.id).padStart(3,"0")===String(c.ccn3).padStart(3,"0"));
-    if(!f) { openCountry(c,null); return; }
-
-    // zoom to country bounds
-    const [[x0,y0],[x1,y1]]=path.bounds(f);
-    const dx=x1-x0, dy=y1-y0, cx=(x0+x1)/2, cy=(y0+y1)/2;
-    const scale=Math.max(1,Math.min(7,.78/Math.max(dx/width,dy/height)));
-    const transform=d3.zoomIdentity.translate(width/2,height/2).scale(scale).translate(-cx,-cy);
-    svg.transition().duration(700).call(zoom.transform,transform);
-    const node=countriesG.selectAll("path").filter(d=>d===f).node();
-    openCountry(c,node);
-});
-
-
-async function loadPeak(c) {
-    const override = COUNTRY_OVERRIDES[c.cca3];
-    if (override?.peakM) {
-        $("peak").textContent = `${override.peakZh} · ${override.peakEn} · ${fmtInt.format(override.peakM)} m`;
-        $("peakNote").textContent = "國家最高點";
-        $("peak").classList.remove("loading");
-        return;
-    }
-
-    const query = `
-SELECT ?peak ?elevation ?peakZh ?peakEn ?capitalZh ?capitalEn WHERE {
-  ?country wdt:P31/wdt:P279* wd:Q6256;
-           wdt:P298 "${c.cca3}".
-  OPTIONAL {
-    ?country wdt:P610 ?peak.
-    OPTIONAL { ?peak wdt:P2044 ?elevation. }
-    OPTIONAL { ?peak rdfs:label ?peakZhTw FILTER(LANG(?peakZhTw)="zh-tw") }
-    OPTIONAL { ?peak rdfs:label ?peakZhHant FILTER(LANG(?peakZhHant)="zh-hant") }
-    OPTIONAL { ?peak rdfs:label ?peakZh FILTER(LANG(?peakZh)="zh") }
-    OPTIONAL { ?peak rdfs:label ?peakEn FILTER(LANG(?peakEn)="en") }
-  }
-  OPTIONAL {
-    ?country wdt:P36 ?capital.
-    OPTIONAL { ?capital rdfs:label ?capitalZhTw FILTER(LANG(?capitalZhTw)="zh-tw") }
-    OPTIONAL { ?capital rdfs:label ?capitalZhHant FILTER(LANG(?capitalZhHant)="zh-hant") }
-    OPTIONAL { ?capital rdfs:label ?capitalZh FILTER(LANG(?capitalZh)="zh") }
-    OPTIONAL { ?capital rdfs:label ?capitalEn FILTER(LANG(?capitalEn)="en") }
-  }
-} LIMIT 10`;
-
-    const url = URLS.wikidata + "?format=json&query=" + encodeURIComponent(query);
 
     try {
-        const res = await fetch(url, { headers: { "Accept": "application/sparql-results+json" } });
-        if (!res.ok) throw new Error(`Wikidata ${res.status}`);
-        const data = await res.json();
-        const rows = data.results?.bindings || [];
-        if (!rows.length) throw new Error("No country metadata");
 
-        const capRow = rows.find(r => r.capitalZhTw || r.capitalZhHant || r.capitalZh || r.capitalEn);
-        if (capRow) {
-            const zh = capRow.capitalZhTw?.value || capRow.capitalZhHant?.value || capRow.capitalZh?.value;
-            const en = capRow.capitalEn?.value;
-            $("capital").textContent = [zh, en].filter(Boolean).join(" · ") || $("capital").textContent;
+        cached =
+            localStorage.getItem(
+                cacheKey
+            );
+
+    } catch {
+    }
+
+
+    if (cached) {
+
+        try {
+
+            const parsed =
+                JSON.parse(
+                    cached
+                );
+
+
+            if (
+                Array.isArray(
+                    parsed
+                )
+            ) {
+
+                applyCountryData(
+                    parsed
+                );
+            }
+
+        } catch {
+        }
+    }
+
+
+    const response =
+        await fetch(
+            URLS.countries
+        );
+
+
+    if (!response.ok) {
+
+        throw new Error(
+            `Country data ${response.status}`
+        );
+    }
+
+
+    const data =
+        await response.json();
+
+
+    applyCountryData(
+        data
+    );
+
+
+    try {
+
+        localStorage.setItem(
+            cacheKey,
+            JSON.stringify(
+                data
+            )
+        );
+
+    } catch {
+    }
+}
+
+
+function applyCountryData(data) {
+
+    countries =
+        data;
+
+
+    countryByNumeric =
+        new Map();
+
+
+    countryByAlpha3 =
+        new Map();
+
+
+    for (
+        const c
+        of countries
+    ) {
+
+        if (c.ccn3) {
+
+            countryByNumeric.set(
+                String(c.ccn3)
+                    .padStart(
+                        3,
+                        "0"
+                    ),
+                c
+            );
         }
 
-        const peakRows = rows.filter(r => r.peak?.value);
-        if (!peakRows.length) throw new Error("No peak");
-        peakRows.sort((a,b) => (+(b.elevation?.value || 0)) - (+(a.elevation?.value || 0)));
-        const r = peakRows[0];
-        const elevation = +(r.elevation?.value || NaN);
-        const peakZh = r.peakZhTw?.value || r.peakZhHant?.value || r.peakZh?.value;
-        const names = [peakZh, r.peakEn?.value].filter(Boolean);
-        $("peak").textContent =
-            `${names.join(" · ") || "國家最高點"}${Number.isFinite(elevation) ? ` · ${fmtInt.format(elevation)} m` : ""}`;
-        $("peakNote").textContent = "Wikidata：最高點與海拔";
-    } catch (err) {
-        console.warn("Peak", err);
-        $("peak").textContent = "資料暫缺";
-        $("peakNote").textContent = "Wikidata 暫時未取得可用的最高點資料";
-    } finally {
-        $("peak").classList.remove("loading");
+
+        if (c.cca3) {
+
+            countryByAlpha3.set(
+                c.cca3,
+                c
+            );
+        }
     }
 }
 
-async function getFX(from, to="TWD") {
-    from=from.toLowerCase(); to=to.toLowerCase();
-    const key=`${from}_${to}`;
-    if(fxCache.has(key)) return fxCache.get(key);
-    const res=await fetch(`${URLS.fx}${from}.json`);
-    if(!res.ok) throw new Error("FX");
-    const data=await res.json();
-    const rate=data[from]?.[to];
-    if(!rate) throw new Error(`No FX ${from}/${to}`);
-    fxCache.set(key,rate); return rate;
-}
 
-async function fetchIloSalaryRows(c) {
-    const params = new URLSearchParams({
-        id: "EAR_4MTH_SEX_CUR_NB_A",
-        ref_area: c.cca3,
-        sex: "SEX_T",
-        classif1: "CUR_TYPE_USD",
-        latestyear: "TRUE",
-        type: "code",
-        format: ".csv"
-    });
-    const res = await fetch(`${URLS.ilo}?${params.toString()}`);
-    if (!res.ok) throw new Error(`ILOSTAT ${res.status}`);
-    const text = await res.text();
-    return d3.csvParse(text);
-}
+/* =========================================================
+ * Load HDI
+ * ========================================================= */
 
-function pickField(obj, candidates) {
-    const keys = Object.keys(obj || {});
-    for (const c of candidates) {
-        const k = keys.find(k => k.toLowerCase() === c.toLowerCase());
-        if (k) return k;
+async function loadHdi() {
+
+    const rows =
+        await d3.csv(
+            URLS.hdi
+        );
+
+
+    if (!rows.length) {
+
+        throw new Error(
+            "HDI empty"
+        );
     }
-    return null;
+
+
+    const valueKey =
+        Object.keys(
+            rows[0]
+        )
+            .find(
+                key =>
+                    /human development index/i.test(
+                        key
+                    )
+            ) ||
+        Object.keys(
+            rows[0]
+        )
+            .find(
+                key =>
+                    ![
+                        "Entity",
+                        "Code",
+                        "Year"
+                    ].includes(
+                        key
+                    )
+            );
+
+
+    hdiHistory =
+        new Map();
+
+
+    for (
+        const row
+        of rows
+    ) {
+
+        if (!row.Code) {
+            continue;
+        }
+
+
+        const year =
+            Number(
+                row.Year
+            );
+
+
+        const value =
+            Number(
+                row[valueKey]
+            );
+
+
+        if (
+            !Number.isFinite(year) ||
+            !Number.isFinite(value)
+        ) {
+            continue;
+        }
+
+
+        if (
+            !hdiHistory.has(
+                row.Code
+            )
+        ) {
+
+            hdiHistory.set(
+                row.Code,
+                new Map()
+            );
+        }
+
+
+        hdiHistory
+            .get(
+                row.Code
+            )
+            .set(
+                year,
+                value
+            );
+    }
+
+
+    /*
+     * Taiwan HDI supplement.
+     */
+    if (
+        !hdiHistory.has(
+            "TWN"
+        )
+    ) {
+
+        hdiHistory.set(
+            "TWN",
+            new Map()
+        );
+    }
+
+
+    hdiHistory
+        .get("TWN")
+        .set(
+            2019,
+            0.916
+        );
+
+
+    hdiHistory
+        .get("TWN")
+        .set(
+            2021,
+            0.926
+        );
+
+
+    hdiHistory
+        .get("TWN")
+        .set(
+            2023,
+            0.934
+        );
+
+
+    hdiYears =
+        [
+            ...new Set(
+                rows
+                    .map(
+                        row =>
+                            Number(
+                                row.Year
+                            )
+                    )
+                    .filter(
+                        Number.isFinite
+                    )
+            )
+        ]
+            .sort(
+                (a, b) =>
+                    a - b
+            );
+
+
+    currentHdiYear =
+        hdiYears.at(-1);
+
+
+    $("yearSlider").min =
+        hdiYears[0];
+
+
+    $("yearSlider").max =
+        currentHdiYear;
+
+
+    $("yearSlider").value =
+        currentHdiYear;
+
+
+    $("yearMin").textContent =
+        hdiYears[0];
+
+
+    $("yearMax").textContent =
+        currentHdiYear;
+
+
+    applyHdiYear(
+        currentHdiYear
+    );
 }
+
+
+/* =========================================================
+ * Draw map
+ * ========================================================= */
+
+function drawMap() {
+
+    countriesRoot
+        .selectAll("path")
+        .data(
+            worldFeatures
+        )
+        .join("path")
+        .attr(
+            "class",
+            "country"
+        )
+        .attr(
+            "d",
+            geoPath
+        )
+        .attr(
+            "fill",
+            feature => {
+
+                const c =
+                    countryForFeature(
+                        feature
+                    );
+
+
+                if (!c) {
+                    return "#3b4655";
+                }
+
+
+                const hdi =
+                    hdiCurrent.get(
+                        c.cca3
+                    );
+
+
+                if (
+                    !Number.isFinite(
+                        hdi
+                    )
+                ) {
+
+                    return "#3b4655";
+                }
+
+
+                return hdiColor(
+                    hdi
+                );
+            }
+        )
+        .on(
+            "mousemove",
+            (
+                event,
+                feature
+            ) => {
+
+                const c =
+                    countryForFeature(
+                        feature
+                    );
+
+
+                if (!c) {
+
+                    $("tooltip").style.opacity =
+                        0;
+
+                    return;
+                }
+
+
+                const hdi =
+                    hdiCurrent.get(
+                        c.cca3
+                    );
+
+
+                $("tooltip").innerHTML =
+                    `
+                    <strong>
+                        ${countryZh(c)}
+                        ·
+                        ${c.name.common}
+                    </strong>
+
+                    <span>
+                        HDI ${currentHdiYear}：
+                        ${
+                            Number.isFinite(hdi)
+                                ? hdi.toFixed(3)
+                                : "—"
+                        }
+                    </span>
+                    `;
+
+
+                $("tooltip").style.left =
+                    `${event.clientX}px`;
+
+
+                $("tooltip").style.top =
+                    `${event.clientY}px`;
+
+
+                $("tooltip").style.opacity =
+                    1;
+            }
+        )
+        .on(
+            "mouseleave",
+            () => {
+
+                $("tooltip").style.opacity =
+                    0;
+            }
+        )
+        .on(
+            "click",
+            (
+                event,
+                feature
+            ) => {
+
+                event.stopPropagation();
+
+
+                const c =
+                    countryForFeature(
+                        feature
+                    );
+
+
+                if (!c) {
+                    return;
+                }
+
+
+                openCountry(
+                    c,
+                    event.currentTarget
+                );
+            }
+        );
+}
+
+
+/* =========================================================
+ * Flag
+ * ========================================================= */
+
+function setFlag(c) {
+
+    const image =
+        $("flag");
+
+
+    if (!c.cca2) {
+
+        image.removeAttribute(
+            "src"
+        );
+
+        return;
+    }
+
+
+    const code =
+        c.cca2.toLowerCase();
+
+
+    image.dataset.fallback =
+        "0";
+
+
+    image.src =
+        `https://flagcdn.com/${code}.svg`;
+
+
+    image.alt =
+        `${countryZh(c)}國旗`;
+
+
+    image.onerror =
+        () => {
+
+            if (
+                image.dataset.fallback ===
+                "0"
+            ) {
+
+                image.dataset.fallback =
+                    "1";
+
+
+                image.src =
+                    `https://flagsapi.com/${c.cca2.toUpperCase()}/flat/64.png`;
+
+                return;
+            }
+
+
+            image.removeAttribute(
+                "src"
+            );
+        };
+}
+
+
+/* =========================================================
+ * Country card
+ * ========================================================= */
+
+async function openCountry(
+    c,
+    node
+) {
+
+    selectedCountry =
+        c;
+
+
+    if (selectedNode) {
+
+        d3.select(
+            selectedNode
+        )
+            .classed(
+                "selected",
+                false
+            );
+    }
+
+
+    selectedNode =
+        node;
+
+
+    d3.select(
+        node
+    )
+        .classed(
+            "selected",
+            true
+        );
+
+
+    $("nameZh").textContent =
+        countryZh(c);
+
+
+    $("nameEn").textContent =
+        c.name.common;
+
+
+    setFlag(c);
+
+
+    updateHdiPill(c);
+
+
+    $("area").textContent =
+        Number.isFinite(
+            Number(c.area)
+        )
+            ? fmtInt.format(
+                Number(c.area)
+            )
+            : "—";
+
+
+    /*
+     * Population
+     */
+
+    let population =
+        Number(
+            c.population
+        );
+
+
+    if (
+        c.cca3 ===
+        "TWN"
+    ) {
+
+        population =
+            TAIWAN.population;
+    }
+
+
+    $("population").textContent =
+        Number.isFinite(
+            population
+        )
+            ? fmtInt.format(
+                population
+            )
+            : "資料暫缺";
+
+
+    $("populationNote").textContent =
+        "最新可用國家資料";
+
+
+    /*
+     * Languages
+     */
+
+    const langs =
+        Object.entries(
+            c.languages ||
+            {}
+        );
+
+
+    $("languages").textContent =
+        langs.length
+            ? langs
+                .map(
+                    (
+                        [
+                            code,
+                            name
+                        ]
+                    ) =>
+                        languageZh(
+                            code,
+                            name
+                        )
+                )
+                .join("、")
+            : "—";
+
+
+    /*
+     * Currency
+     */
+
+    const currencies =
+        Object.entries(
+            c.currencies ||
+            {}
+        );
+
+
+    $("currency").textContent =
+        currencies.length
+            ? currencies
+                .map(
+                    (
+                        [
+                            code,
+                            value
+                        ]
+                    ) => {
+
+                        const name =
+                            currencyZh(
+                                code,
+                                value.name
+                            );
+
+
+                        return (
+                            `${name}（${code}` +
+                            (
+                                value.symbol
+                                    ? ` · ${value.symbol}`
+                                    : ""
+                            ) +
+                            "）"
+                        );
+                    }
+                )
+                .join("、")
+            : "—";
+
+
+    /*
+     * Capital
+     */
+
+    if (
+        c.cca3 ===
+        "TWN"
+    ) {
+
+        $("capital").textContent =
+            `${TAIWAN.capitalZh} · ${TAIWAN.capitalEn}`;
+
+    } else {
+
+        $("capital").textContent =
+            c.capital?.length
+                ? c.capital.join("、")
+                : "—";
+    }
+
+
+    /*
+     * Reset async cards
+     */
+
+    $("salary").textContent =
+        "查詢中";
+
+
+    $("salary")
+        .classList
+        .add(
+            "loading"
+        );
+
+
+    $("peak").textContent =
+        "查詢中";
+
+
+    $("peak")
+        .classList
+        .add(
+            "loading"
+        );
+
+
+    [
+        "spring",
+        "summer",
+        "autumn",
+        "winter"
+    ]
+        .forEach(
+            id =>
+                $(id).textContent =
+                    "…"
+        );
+
+
+    $("info")
+        .classList
+        .add(
+            "open"
+        );
+
+
+    /*
+     * Load independently.
+     */
+
+    Promise.allSettled(
+        [
+            loadSalary(c),
+            loadPeak(c),
+            loadTemperature(c)
+        ]
+    );
+}
+
+
+/* =========================================================
+ * FX
+ * ========================================================= */
+
+async function getFx(
+    from,
+    to = "TWD"
+) {
+
+    const fromLower =
+        from.toLowerCase();
+
+
+    const toLower =
+        to.toLowerCase();
+
+
+    const key =
+        `${fromLower}_${toLower}`;
+
+
+    if (
+        fxCache.has(
+            key
+        )
+    ) {
+
+        return fxCache.get(
+            key
+        );
+    }
+
+
+    const response =
+        await fetch(
+            `${URLS.fx}${fromLower}.json`
+        );
+
+
+    if (!response.ok) {
+
+        throw new Error(
+            "FX request failed"
+        );
+    }
+
+
+    const data =
+        await response.json();
+
+
+    const rate =
+        data?.[fromLower]?.[toLower];
+
+
+    if (
+        !Number.isFinite(
+            Number(rate)
+        )
+    ) {
+
+        throw new Error(
+            "FX rate missing"
+        );
+    }
+
+
+    fxCache.set(
+        key,
+        Number(rate)
+    );
+
+
+    return Number(rate);
+}
+
+
+/* =========================================================
+ * Salary
+ * ========================================================= */
 
 async function loadSalary(c) {
-    const override = COUNTRY_OVERRIDES[c.cca3];
-    if (override?.salaryTwd) {
-        $("salary").textContent = `NT$ ${fmtInt.format(override.salaryTwd)}`;
-        $("salaryNote").textContent = `行政院主計總處 · ${override.salaryYear} 工業及服務業總薪資平均`;
-        $("salary").classList.remove("loading");
-        return;
-    }
-
-    if (salaryCache.has(c.cca3)) {
-        const r = salaryCache.get(c.cca3);
-        $("salary").textContent = `NT$ ${fmtInt.format(r.twd)}`;
-        $("salaryNote").textContent = `ILOSTAT ${r.year} · 平均月薪；美元換算 TWD`;
-        $("salary").classList.remove("loading");
-        return;
-    }
 
     try {
-        let rows = await fetchIloSalaryRows(c);
-        if (!rows?.length) {
-            // Retry without forcing the USD classification; some countries only expose local currency.
-            const params = new URLSearchParams({
-                id: "EAR_4MTH_SEX_CUR_NB_A",
-                ref_area: c.cca3,
-                sex: "SEX_T",
-                latestyear: "TRUE",
-                type: "code",
-                format: ".csv"
-            });
-            const res = await fetch(`${URLS.ilo}?${params.toString()}`);
-            if (!res.ok) throw new Error(`ILOSTAT ${res.status}`);
-            rows = d3.csvParse(await res.text());
-        }
-        if (!rows?.length) throw new Error("No ILO wage rows");
 
-        const sample = rows[0];
-        const refK = pickField(sample, ["ref_area", "ref_area.label", "refArea", "country_code"]);
-        const timeK = pickField(sample, ["time", "year"]);
-        const valK = pickField(sample, ["obs_value", "value"]);
-        const clsK = pickField(sample, ["classif1", "currency"]);
-        if (!timeK || !valK) throw new Error("Unexpected ILO schema");
+        /*
+         * Taiwan uses TWD directly.
+         */
 
-        let rr = rows.filter(r => !refK || String(r[refK]).toUpperCase() === c.cca3 || rows.length < 20);
-        rr = rr.filter(r => Number.isFinite(+r[valK]));
-        if (!rr.length) throw new Error("No usable wage values");
-        rr.sort((a,b) => (+a[timeK] || 0) - (+b[timeK] || 0));
-        const latestYear = rr.at(-1)[timeK];
-        rr = rr.filter(r => String(r[timeK]) === String(latestYear));
+        if (
+            c.cca3 ===
+            "TWN"
+        ) {
 
-        let best = rr.find(r => /USD/i.test(String(r[clsK] || ""))) || rr[0];
-        let value = +best[valK];
-        if (!Number.isFinite(value)) throw new Error("Bad wage value");
+            $("salary").textContent =
+                `NT$ ${fmtInt.format(
+                    TAIWAN.salaryTwd
+                )}`;
 
-        let twd;
-        const cls = String(best[clsK] || "");
-        if (/USD/i.test(cls)) {
-            twd = value * await getFX("USD", "TWD");
-        } else {
-            const localCode = Object.keys(c.currencies || {})[0];
-            if (!localCode) throw new Error("Unknown local currency");
-            twd = value * (localCode === "TWD" ? 1 : await getFX(localCode, "TWD"));
+
+            $("salaryNote").textContent =
+                "2026 稅前平均月薪參考";
+
+
+            return;
         }
 
-        salaryCache.set(c.cca3, { twd, year: latestYear });
-        $("salary").textContent = `NT$ ${fmtInt.format(twd)}`;
-        $("salaryNote").textContent = `ILOSTAT ${latestYear} · 平均月薪；依可用幣別換算 TWD`;
-    } catch (err) {
-        console.warn("Salary", err);
-        $("salary").textContent = "資料暫缺";
-        $("salaryNote").textContent = "ILOSTAT 此國家目前沒有可直接比較的平均月薪資料";
+
+        /*
+         * Embedded salary.
+         */
+
+        const usd =
+            SALARY_USD[
+                c.cca3
+            ];
+
+
+        if (
+            Number.isFinite(
+                usd
+            )
+        ) {
+
+            let usdTwd =
+                32;
+
+
+            try {
+
+                usdTwd =
+                    await getFx(
+                        "USD",
+                        "TWD"
+                    );
+
+            } catch {
+
+                /*
+                 * If FX API is unavailable,
+                 * use a conservative fallback.
+                 */
+            }
+
+
+            const twd =
+                usd *
+                usdTwd;
+
+
+            $("salary").textContent =
+                `NT$ ${fmtInt.format(
+                    twd
+                )}`;
+
+
+            $("salaryNote").textContent =
+                `2026 稅前平均月薪參考 · US$ ${fmtInt.format(usd)}/月`;
+
+
+            return;
+        }
+
+
+        /*
+         * Not embedded:
+         * attempt ILOSTAT.
+         */
+
+        const params =
+            new URLSearchParams(
+                {
+                    id:
+                        "EAR_4MTH_SEX_CUR_NB_A",
+
+                    ref_area:
+                        c.cca3,
+
+                    sex:
+                        "SEX_T",
+
+                    classif1:
+                        "CUR_TYPE_USD",
+
+                    latestyear:
+                        "TRUE",
+
+                    type:
+                        "code",
+
+                    format:
+                        ".csv"
+                }
+            );
+
+
+        const response =
+            await fetch(
+                `${URLS.ilo}?${params.toString()}`
+            );
+
+
+        if (!response.ok) {
+
+            throw new Error(
+                "ILOSTAT failed"
+            );
+        }
+
+
+        const csv =
+            await response.text();
+
+
+        const rows =
+            d3.csvParse(
+                csv
+            );
+
+
+        if (!rows.length) {
+
+            throw new Error(
+                "No salary data"
+            );
+        }
+
+
+        const valueKey =
+            Object.keys(
+                rows[0]
+            )
+                .find(
+                    key =>
+                        key.toLowerCase() ===
+                        "obs_value"
+                ) ||
+            Object.keys(
+                rows[0]
+            )
+                .find(
+                    key =>
+                        key.toLowerCase() ===
+                        "value"
+                );
+
+
+        const yearKey =
+            Object.keys(
+                rows[0]
+            )
+                .find(
+                    key =>
+                        key.toLowerCase() ===
+                        "time"
+                ) ||
+            Object.keys(
+                rows[0]
+            )
+                .find(
+                    key =>
+                        key.toLowerCase() ===
+                        "year"
+                );
+
+
+        if (
+            !valueKey ||
+            !yearKey
+        ) {
+
+            throw new Error(
+                "ILOSTAT format"
+            );
+        }
+
+
+        const usable =
+            rows
+                .filter(
+                    row =>
+                        Number.isFinite(
+                            Number(
+                                row[valueKey]
+                            )
+                        )
+                )
+                .sort(
+                    (a, b) =>
+                        Number(
+                            b[yearKey]
+                        ) -
+                        Number(
+                            a[yearKey]
+                        )
+                );
+
+
+        if (!usable.length) {
+
+            throw new Error(
+                "No usable salary"
+            );
+        }
+
+
+        const row =
+            usable[0];
+
+
+        const salaryUsd =
+            Number(
+                row[valueKey]
+            );
+
+
+        let usdTwd =
+            32;
+
+
+        try {
+
+            usdTwd =
+                await getFx(
+                    "USD",
+                    "TWD"
+                );
+
+        } catch {
+        }
+
+
+        const twd =
+            salaryUsd *
+            usdTwd;
+
+
+        $("salary").textContent =
+            `NT$ ${fmtInt.format(
+                twd
+            )}`;
+
+
+        $("salaryNote").textContent =
+            `ILOSTAT ${row[yearKey]} · 稅前平均月薪`;
+
+
+    } catch (error) {
+
+        console.warn(
+            "Salary:",
+            error
+        );
+
+
+        $("salary").textContent =
+            "資料暫缺";
+
+
+        $("salaryNote").textContent =
+            "目前沒有可比較的平均月薪資料";
+
+
     } finally {
-        $("salary").classList.remove("loading");
+
+        $("salary")
+            .classList
+            .remove(
+                "loading"
+            );
     }
 }
 
-function mean(arr) {
-    const v = arr.filter(Number.isFinite);
-    return v.length ? d3.mean(v) : null;
-}
 
-function showSeasonTemps(monthly, south, note) {
-    const seasons = south
-        ? { spring:[9,10,11], summer:[12,1,2], autumn:[3,4,5], winter:[6,7,8] }
-        : { spring:[3,4,5], summer:[6,7,8], autumn:[9,10,11], winter:[12,1,2] };
+/* =========================================================
+ * Peak + capital
+ * ========================================================= */
 
-    for (const [id, months] of Object.entries(seasons)) {
-        const v = mean(months.map(m => monthly.get(m)));
-        $(id).textContent = v == null ? "—" : `${fmt1.format(v)}°C`;
+async function loadPeak(c) {
+
+    try {
+
+        if (
+            c.cca3 ===
+            "TWN"
+        ) {
+
+            $("peak").textContent =
+                `${TAIWAN.peakZh} · ${TAIWAN.peakEn} · ${TAIWAN.peakM} m`;
+
+
+            $("peakNote").textContent =
+                "國家最高點";
+
+
+            return;
+        }
+
+
+        const query =
+`
+SELECT
+    ?peak
+    ?elevation
+    ?peakZhTw
+    ?peakZhHant
+    ?peakEn
+    ?capitalZhTw
+    ?capitalZhHant
+    ?capitalEn
+WHERE {
+
+    ?country
+        wdt:P31/wdt:P279*
+            wd:Q6256 ;
+
+        wdt:P298
+            "${c.cca3}" .
+
+    OPTIONAL {
+
+        ?country
+            wdt:P610
+                ?peak .
+
+        OPTIONAL {
+            ?peak
+                wdt:P2044
+                    ?elevation .
+        }
+
+        OPTIONAL {
+            ?peak
+                rdfs:label
+                    ?peakZhTw .
+
+            FILTER(
+                LANG(?peakZhTw)
+                =
+                "zh-tw"
+            )
+        }
+
+        OPTIONAL {
+            ?peak
+                rdfs:label
+                    ?peakZhHant .
+
+            FILTER(
+                LANG(?peakZhHant)
+                =
+                "zh-hant"
+            )
+        }
+
+        OPTIONAL {
+            ?peak
+                rdfs:label
+                    ?peakEn .
+
+            FILTER(
+                LANG(?peakEn)
+                =
+                "en"
+            )
+        }
     }
-    $("tempNote").textContent = note;
+
+    OPTIONAL {
+
+        ?country
+            wdt:P36
+                ?capital .
+
+        OPTIONAL {
+
+            ?capital
+                rdfs:label
+                    ?capitalZhTw .
+
+            FILTER(
+                LANG(?capitalZhTw)
+                =
+                "zh-tw"
+            )
+        }
+
+        OPTIONAL {
+
+            ?capital
+                rdfs:label
+                    ?capitalZhHant .
+
+            FILTER(
+                LANG(?capitalZhHant)
+                =
+                "zh-hant"
+            )
+        }
+
+        OPTIONAL {
+
+            ?capital
+                rdfs:label
+                    ?capitalEn .
+
+            FILTER(
+                LANG(?capitalEn)
+                =
+                "en"
+            )
+        }
+    }
 }
 
-async function loadTemperatureFromOwid(c) {
-    const params = new URLSearchParams({
-        tab: "table",
-        time: "1991-01-15..2020-12-15",
-        country: c.cca3,
-        csvType: "filtered",
-        useColumnShortNames: "false"
-    });
-    const rows = await d3.csv(`${URLS.tempBase}?${params.toString()}`);
-    if (!rows?.length) throw new Error("OWID temperature empty");
+LIMIT 10
+`;
 
-    const sample = rows[0];
-    const tempK = Object.keys(sample).find(k => /temperature/i.test(k) && !["Entity","Code","Day","Year"].includes(k))
-        || Object.keys(sample).find(k => !["Entity","Code","Day","Year"].includes(k));
-    const dateK = Object.keys(sample).find(k => ["day","date"].includes(k.toLowerCase()));
-    if (!tempK || !dateK) throw new Error("OWID temperature schema");
 
-    const rr = rows
-        .filter(r => !r.Code || r.Code === c.cca3)
-        .map(r => ({ date: new Date(r[dateK]), t: +r[tempK] }))
-        .filter(r => Number.isFinite(r.t) && !Number.isNaN(r.date.getTime()));
+        const url =
+            URLS.wikidata +
+            "?format=json&query=" +
+            encodeURIComponent(
+                query
+            );
 
-    if (!rr.length) throw new Error("No OWID country temperature");
 
-    const byMonth = d3.rollup(rr, v => d3.mean(v, d => d.t), d => d.date.getUTCMonth() + 1);
-    if (byMonth.size < 10) throw new Error("Incomplete OWID monthly climate");
+        const response =
+            await fetch(
+                url,
+                {
+                    headers:
+                    {
+                        Accept:
+                            "application/sparql-results+json"
+                    }
+                }
+            );
 
-    const south = (c.latlng?.[0] || 0) < 0;
-    showSeasonTemps(
-        byMonth,
-        south,
-        `ERA5 / OWID 1991–2020 國土平均地表氣溫 · ${south ? "南半球" : "北半球"}氣象季節`
+
+        if (!response.ok) {
+
+            throw new Error(
+                "Wikidata failed"
+            );
+        }
+
+
+        const data =
+            await response.json();
+
+
+        const rows =
+            data
+                ?.results
+                ?.bindings ||
+            [];
+
+
+        const capitalRow =
+            rows.find(
+                row =>
+                    row.capitalZhTw ||
+                    row.capitalZhHant ||
+                    row.capitalEn
+            );
+
+
+        if (capitalRow) {
+
+            const zh =
+                capitalRow
+                    .capitalZhTw
+                    ?.value ||
+                capitalRow
+                    .capitalZhHant
+                    ?.value;
+
+
+            const en =
+                capitalRow
+                    .capitalEn
+                    ?.value;
+
+
+            const names =
+                [
+                    zh,
+                    en
+                ]
+                    .filter(Boolean);
+
+
+            if (names.length) {
+
+                $("capital").textContent =
+                    names.join(
+                        " · "
+                    );
+            }
+        }
+
+
+        const peakRows =
+            rows.filter(
+                row =>
+                    row.peak
+            );
+
+
+        if (!peakRows.length) {
+
+            throw new Error(
+                "Peak missing"
+            );
+        }
+
+
+        peakRows.sort(
+            (a, b) =>
+                Number(
+                    b.elevation
+                        ?.value ||
+                    0
+                ) -
+                Number(
+                    a.elevation
+                        ?.value ||
+                    0
+                )
+        );
+
+
+        const peak =
+            peakRows[0];
+
+
+        const peakZh =
+            peak
+                .peakZhTw
+                ?.value ||
+            peak
+                .peakZhHant
+                ?.value;
+
+
+        const peakEn =
+            peak
+                .peakEn
+                ?.value;
+
+
+        const elevation =
+            Number(
+                peak
+                    .elevation
+                    ?.value
+            );
+
+
+        const names =
+            [
+                peakZh,
+                peakEn
+            ]
+                .filter(Boolean);
+
+
+        $("peak").textContent =
+            (
+                names.length
+                    ? names.join(" · ")
+                    : "國家最高點"
+            ) +
+            (
+                Number.isFinite(
+                    elevation
+                )
+                    ? ` · ${fmtInt.format(elevation)} m`
+                    : ""
+            );
+
+
+        $("peakNote").textContent =
+            "Wikidata";
+
+
+    } catch (error) {
+
+        console.warn(
+            "Peak:",
+            error
+        );
+
+
+        $("peak").textContent =
+            "資料暫缺";
+
+
+        $("peakNote").textContent =
+            "目前無可用最高點資料";
+
+
+    } finally {
+
+        $("peak")
+            .classList
+            .remove(
+                "loading"
+            );
+    }
+}
+
+
+/* =========================================================
+ * Temperature helpers
+ * ========================================================= */
+
+function average(values) {
+
+    const valid =
+        values.filter(
+            Number.isFinite
+        );
+
+
+    if (!valid.length) {
+        return null;
+    }
+
+
+    return d3.mean(
+        valid
     );
 }
 
-async function loadTemperatureFromNasa(c) {
-    const lat = +(c.latlng?.[0]);
-    const lon = +(c.latlng?.[1]);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) throw new Error("No coordinates");
 
-    const params = new URLSearchParams({
-        parameters: "T2M",
-        community: "AG",
-        longitude: lon,
-        latitude: lat,
-        format: "JSON"
-    });
+function renderSeasons(
+    monthly,
+    south,
+    note
+) {
 
-    const res = await fetch(`${URLS.nasaPower}?${params.toString()}`);
-    if (!res.ok) throw new Error(`NASA POWER ${res.status}`);
-    const data = await res.json();
-    const values = data?.properties?.parameter?.T2M;
-    if (!values) throw new Error("NASA POWER no T2M");
+    const seasons =
+        south
 
-    const monthly = new Map();
-    const monthKeys = [
-        ["JAN",1],["FEB",2],["MAR",3],["APR",4],["MAY",5],["JUN",6],
-        ["JUL",7],["AUG",8],["SEP",9],["OCT",10],["NOV",11],["DEC",12]
-    ];
-    for (const [k,m] of monthKeys) {
-        const v = +values[k];
-        if (Number.isFinite(v) && v > -90) monthly.set(m, v);
+            ? {
+                spring:
+                    [9, 10, 11],
+
+                summer:
+                    [12, 1, 2],
+
+                autumn:
+                    [3, 4, 5],
+
+                winter:
+                    [6, 7, 8]
+            }
+
+            : {
+                spring:
+                    [3, 4, 5],
+
+                summer:
+                    [6, 7, 8],
+
+                autumn:
+                    [9, 10, 11],
+
+                winter:
+                    [12, 1, 2]
+            };
+
+
+    for (
+        const [
+            id,
+            months
+        ]
+        of Object.entries(
+            seasons
+        )
+    ) {
+
+        const value =
+            average(
+                months.map(
+                    month =>
+                        monthly.get(
+                            month
+                        )
+                )
+            );
+
+
+        $(id).textContent =
+            Number.isFinite(
+                value
+            )
+                ? `${fmt1.format(value)}°C`
+                : "—";
     }
-    if (monthly.size < 10) throw new Error("NASA POWER incomplete climatology");
 
-    const south = lat < 0;
-    showSeasonTemps(
+
+    $("tempNote").textContent =
+        note;
+}
+
+
+/* =========================================================
+ * Temperature: OWID
+ * ========================================================= */
+
+async function loadTemperatureOwid(c) {
+
+    const params =
+        new URLSearchParams(
+            {
+                tab:
+                    "table",
+
+                time:
+                    "1991-01-15..2020-12-15",
+
+                country:
+                    c.cca3,
+
+                csvType:
+                    "filtered",
+
+                useColumnShortNames:
+                    "false"
+            }
+        );
+
+
+    const rows =
+        await d3.csv(
+            `${URLS.temp}?${params.toString()}`
+        );
+
+
+    if (!rows.length) {
+
+        throw new Error(
+            "Temperature empty"
+        );
+    }
+
+
+    const sample =
+        rows[0];
+
+
+    const tempKey =
+        Object.keys(
+            sample
+        )
+            .find(
+                key =>
+                    /temperature/i.test(
+                        key
+                    ) &&
+                    ![
+                        "Entity",
+                        "Code",
+                        "Day",
+                        "Year"
+                    ].includes(
+                        key
+                    )
+            );
+
+
+    const dateKey =
+        Object.keys(
+            sample
+        )
+            .find(
+                key =>
+                    [
+                        "day",
+                        "date"
+                    ].includes(
+                        key.toLowerCase()
+                    )
+            );
+
+
+    if (
+        !tempKey ||
+        !dateKey
+    ) {
+
+        throw new Error(
+            "Temperature format"
+        );
+    }
+
+
+    const parsed =
+        rows
+            .filter(
+                row =>
+                    !row.Code ||
+                    row.Code ===
+                        c.cca3
+            )
+            .map(
+                row =>
+                ({
+                    date:
+                        new Date(
+                            row[dateKey]
+                        ),
+
+                    temp:
+                        Number(
+                            row[tempKey]
+                        )
+                })
+            )
+            .filter(
+                row =>
+                    Number.isFinite(
+                        row.temp
+                    ) &&
+                    !Number.isNaN(
+                        row.date.getTime()
+                    )
+            );
+
+
+    if (!parsed.length) {
+
+        throw new Error(
+            "Temperature unavailable"
+        );
+    }
+
+
+    const monthly =
+        d3.rollup(
+            parsed,
+
+            values =>
+                d3.mean(
+                    values,
+                    value =>
+                        value.temp
+                ),
+
+            value =>
+                value
+                    .date
+                    .getUTCMonth() +
+                1
+        );
+
+
+    const south =
+        Number(
+            c.latlng?.[0]
+        ) < 0;
+
+
+    renderSeasons(
         monthly,
         south,
-        `NASA POWER 氣候平均 · 以國家代表座標 (${lat.toFixed(1)}°, ${lon.toFixed(1)}°) 為備援；非全國面積平均`
+        `ERA5 / OWID 1991–2020 · ${south ? "南半球" : "北半球"}`
     );
 }
 
-async function loadTemperature(c) {
-    if (tempCache.has(c.cca3)) {
-        const cached = tempCache.get(c.cca3);
-        showSeasonTemps(cached.monthly, cached.south, cached.note);
-        return;
+
+/* =========================================================
+ * Temperature: NASA fallback
+ * ========================================================= */
+
+async function loadTemperatureNasa(c) {
+
+    const lat =
+        Number(
+            c.latlng?.[0]
+        );
+
+
+    const lon =
+        Number(
+            c.latlng?.[1]
+        );
+
+
+    if (
+        !Number.isFinite(lat) ||
+        !Number.isFinite(lon)
+    ) {
+
+        throw new Error(
+            "No coordinate"
+        );
     }
 
+
+    const params =
+        new URLSearchParams(
+            {
+                parameters:
+                    "T2M",
+
+                community:
+                    "AG",
+
+                longitude:
+                    lon,
+
+                latitude:
+                    lat,
+
+                format:
+                    "JSON"
+            }
+        );
+
+
+    const response =
+        await fetch(
+            `${URLS.nasa}?${params.toString()}`
+        );
+
+
+    if (!response.ok) {
+
+        throw new Error(
+            "NASA failed"
+        );
+    }
+
+
+    const data =
+        await response.json();
+
+
+    const values =
+        data
+            ?.properties
+            ?.parameter
+            ?.T2M;
+
+
+    if (!values) {
+
+        throw new Error(
+            "NASA no T2M"
+        );
+    }
+
+
+    const monthList =
+    [
+        ["JAN", 1],
+        ["FEB", 2],
+        ["MAR", 3],
+        ["APR", 4],
+        ["MAY", 5],
+        ["JUN", 6],
+        ["JUL", 7],
+        ["AUG", 8],
+        ["SEP", 9],
+        ["OCT", 10],
+        ["NOV", 11],
+        ["DEC", 12]
+    ];
+
+
+    const monthly =
+        new Map();
+
+
+    for (
+        const [
+            name,
+            month
+        ]
+        of monthList
+    ) {
+
+        const value =
+            Number(
+                values[name]
+            );
+
+
+        if (
+            Number.isFinite(
+                value
+            ) &&
+            value > -90
+        ) {
+
+            monthly.set(
+                month,
+                value
+            );
+        }
+    }
+
+
+    if (
+        monthly.size <
+        10
+    ) {
+
+        throw new Error(
+            "NASA incomplete"
+        );
+    }
+
+
+    const south =
+        lat < 0;
+
+
+    renderSeasons(
+        monthly,
+        south,
+        `NASA POWER 氣候平均 · 代表座標 ${lat.toFixed(1)}°, ${lon.toFixed(1)}°`
+    );
+}
+
+
+async function loadTemperature(c) {
+
     try {
-        await loadTemperatureFromOwid(c);
-    } catch (err) {
-        console.warn("OWID Temp fallback to NASA POWER", err);
+
+        await loadTemperatureOwid(
+            c
+        );
+
+    } catch (owidError) {
+
+        console.warn(
+            "OWID temperature:",
+            owidError
+        );
+
+
         try {
-            await loadTemperatureFromNasa(c);
-        } catch (err2) {
-            console.warn("NASA Temp", err2);
-            ["spring","summer","autumn","winter"].forEach(id => $(id).textContent = "—");
-            $("tempNote").textContent = "目前無法取得此國家的氣候均溫資料";
+
+            await loadTemperatureNasa(
+                c
+            );
+
+        } catch (nasaError) {
+
+            console.warn(
+                "NASA temperature:",
+                nasaError
+            );
+
+
+            [
+                "spring",
+                "summer",
+                "autumn",
+                "winter"
+            ]
+                .forEach(
+                    id =>
+                        $(id).textContent =
+                            "—"
+                );
+
+
+            $("tempNote").textContent =
+                "目前無可用氣候資料";
         }
     }
 }
 
+
+/* =========================================================
+ * Search
+ * ========================================================= */
+
+$("search")
+    .addEventListener(
+        "keydown",
+        event => {
+
+            if (
+                event.key !==
+                "Enter"
+            ) {
+                return;
+            }
+
+
+            const input =
+                event
+                    .target
+                    .value
+                    .trim();
+
+
+            const query =
+                input
+                    .toLowerCase();
+
+
+            if (!query) {
+                return;
+            }
+
+
+            const c =
+                countries.find(
+                    item =>
+                    {
+
+                        const zh =
+                            countryZh(
+                                item
+                            );
+
+
+                        return (
+                            item
+                                .name
+                                .common
+                                .toLowerCase()
+                                .includes(
+                                    query
+                                ) ||
+
+                            item
+                                .name
+                                .official
+                                .toLowerCase()
+                                .includes(
+                                    query
+                                ) ||
+
+                            zh.includes(
+                                input
+                            ) ||
+
+                            item
+                                .cca3
+                                .toLowerCase() ===
+                                query
+                        );
+                    }
+                );
+
+
+            if (!c) {
+
+                setStatus(
+                    `找不到「${input}」`,
+                    "搜尋"
+                );
+
+                return;
+            }
+
+
+            const feature =
+                worldFeatures.find(
+                    feature =>
+                        String(
+                            feature.id
+                        )
+                            .padStart(
+                                3,
+                                "0"
+                            ) ===
+                        String(
+                            c.ccn3
+                        )
+                            .padStart(
+                                3,
+                                "0"
+                            )
+                );
+
+
+            if (!feature) {
+
+                setStatus(
+                    "找到國家，但地圖中沒有對應區域",
+                    "搜尋"
+                );
+
+                return;
+            }
+
+
+            const node =
+                countriesRoot
+                    .selectAll("path")
+                    .filter(
+                        feature2 =>
+                            feature2 ===
+                            feature
+                    )
+                    .node();
+
+
+            openCountry(
+                c,
+                node
+            );
+        }
+    );
+
+
+/* =========================================================
+ * Timeline
+ * ========================================================= */
+
+$("yearSlider")
+    .addEventListener(
+        "input",
+        event => {
+
+            applyHdiYear(
+                Number(
+                    event
+                        .target
+                        .value
+                )
+            );
+        }
+    );
+
+
+$("play")
+    .addEventListener(
+        "click",
+        () => {
+
+            if (playTimer) {
+
+                clearInterval(
+                    playTimer
+                );
+
+
+                playTimer =
+                    null;
+
+
+                $("play").textContent =
+                    "▶";
+
+
+                return;
+            }
+
+
+            let index =
+                hdiYears.indexOf(
+                    currentHdiYear
+                );
+
+
+            if (
+                index >=
+                hdiYears.length - 1
+            ) {
+
+                index =
+                    -1;
+            }
+
+
+            $("play").textContent =
+                "Ⅱ";
+
+
+            playTimer =
+                setInterval(
+                    () => {
+
+                        index++;
+
+
+                        if (
+                            index >=
+                            hdiYears.length
+                        ) {
+
+                            clearInterval(
+                                playTimer
+                            );
+
+
+                            playTimer =
+                                null;
+
+
+                            $("play").textContent =
+                                "▶";
+
+
+                            return;
+                        }
+
+
+                        const year =
+                            hdiYears[
+                                index
+                            ];
+
+
+                        $("yearSlider").value =
+                            year;
+
+
+                        applyHdiYear(
+                            year
+                        );
+
+                    },
+                    550
+                );
+        }
+    );
+
+
+/* =========================================================
+ * Buttons
+ * ========================================================= */
+
+$("close")
+    .addEventListener(
+        "click",
+        () => {
+
+            $("info")
+                .classList
+                .remove(
+                    "open"
+                );
+
+
+            if (selectedNode) {
+
+                d3.select(
+                    selectedNode
+                )
+                    .classed(
+                        "selected",
+                        false
+                    );
+            }
+
+
+            selectedNode =
+                null;
+        }
+    );
+
+
+$("reset")
+    .addEventListener(
+        "click",
+        () => {
+
+            svg
+                .transition()
+                .duration(
+                    600
+                )
+                .call(
+                    zoom.transform,
+                    d3.zoomIdentity
+                );
+        }
+    );
+
+
+/* =========================================================
+ * Initial load
+ * ========================================================= */
+
+async function init() {
+
+    try {
+
+        /*
+         * Geometry first.
+         */
+
+        setStatus(
+            "正在載入世界國界",
+            "載入中"
+        );
+
+
+        const world =
+            await d3.json(
+                URLS.world
+            );
+
+
+        worldFeatures =
+            topojson
+                .feature(
+                    world,
+                    world
+                        .objects
+                        .countries
+                )
+                .features;
+
+
+        resize();
+
+
+        /*
+         * Country metadata.
+         */
+
+        setStatus(
+            "正在載入國家資料",
+            "載入中"
+        );
+
+
+        await loadCountryData();
+
+
+        /*
+         * HDI.
+         */
+
+        setStatus(
+            "正在載入 HDI",
+            "載入中"
+        );
+
+
+        await loadHdi();
+
+
+        /*
+         * Render.
+         */
+
+        drawMap();
+
+
+        resize();
+
+
+        setStatus(
+            `${worldFeatures.length} 個地理區域 · HDI ${currentHdiYear}`,
+            "完成"
+        );
+
+
+    } catch (error) {
+
+        console.error(
+            error
+        );
+
+
+        setStatus(
+            error.message,
+            "載入失敗"
+        );
+    }
+}
+
+
 resize();
-loadBaseData();
+
+init();
+
 })();
 </script>
+
 </body>
 </html>
-
