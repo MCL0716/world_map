@@ -253,6 +253,11 @@
     }
 }
 
+
+    #salaryLabel {
+        font-weight: 700;
+    }
+
 </style>
 </head>
 <body>
@@ -310,7 +315,7 @@
                     <div class="card"><div class="label">使用貨幣</div><div class="value" id="currency">—</div></div>
                     <div class="card"><div class="label">首都</div><div class="value" id="capital">—</div></div>
                     <div class="card wide">
-                        <div class="label">平均月薪（新台幣）</div>
+                        <div class="label" id="salaryLabel">月薪（新台幣）</div>
                         <div class="value big loading" id="salary">查詢中</div>
                         <div class="sub" id="salaryNote">ILOSTAT 平均月薪；依資料年度與可用幣別換算</div>
                     </div>
@@ -332,7 +337,7 @@
                 </div>
                 <div class="sources">
                     資料來源：HDI — UNDP Human Development Reports / Our World in Data；國家代碼 — ISO 3166（內建）；國家詳細資料 — world-countries（含瀏覽器快取）；
-                    人口 — UN World Population Prospects；薪資 — 2026 全球 206 國稅前平均月薪參考（wage.is 彙整各國統計機關、ILO、OECD），ILOSTAT 備援；最高點 — Wikidata；氣溫 — Copernicus ERA5 / Our World in Data，NASA POWER（備援）。<br>
+                    人口 — UN World Population Prospects；薪資 — ILOSTAT 受僱者月薪中位數優先；無中位數時使用 206 國稅前平均月薪參考值；最高點 — Wikidata；氣溫 — Copernicus ERA5 / Our World in Data，NASA POWER（備援）。<br>
                     注意：薪資為跨國比較用的稅前平均月薪參考值，USD 使用 2026 匯率口徑；各國原始統計年份與涵蓋範圍可能不同；四季均溫為全國陸地平均，幅員大的國家不等同於首都氣候。
                 </div>
             </div>
@@ -372,7 +377,7 @@ const countriesG = g.append("g");
 
 let width=0, height=0, worldFeatures=[], countryByNumeric=new Map(), countryByAlpha3=new Map();
 let hdiByCode=new Map(), hdiHistory=new Map(), hdiYears=[], selectedHdiYear=null, latestHdiYear=null, selectedPath=null, selectedCountry=null, playTimer=null;
-let fxCache=new Map(), tempCache=new Map(), salaryCache=new Map();
+let fxCache=new Map(), tempCache=new Map(), salaryCache=new Map(), medianSalaryCache=new Map();
 
 const projection = d3.geoNaturalEarth1();
 const path = d3.geoPath(projection);
@@ -784,6 +789,7 @@ async function openCountry(c, node) {
         ? `${override.capitalZh} · ${override.capitalEn}`
         : (c.capital?.length ? c.capital.join("、") : "—");
 
+    if ($("salaryLabel")) $("salaryLabel").textContent = "月薪（新台幣）";
     ["salary","peak"].forEach(id => { $(id).classList.add("loading"); $(id).textContent="查詢中"; });
     ["spring","summer","autumn","winter"].forEach(id => $(id).textContent="…");
     $("salaryNote").textContent="ILOSTAT 平均月薪；依資料年度與可用幣別換算";
@@ -961,6 +967,105 @@ async function getFX(from, to="TWD") {
     fxCache.set(key,rate); return rate;
 }
 
+
+async function fetchIloMedianSalaryRows(c) {
+    const params = new URLSearchParams({
+        id: "EAR_EMTM_SEX_CUR_NB",
+        ref_area: c.cca3,
+        sex: "SEX_T",
+        classif1: "CUR_TYPE_USD",
+        latestyear: "TRUE",
+        type: "code",
+        format: ".csv"
+    });
+
+    const res = await fetch(`${URLS.ilo}?${params.toString()}`);
+
+    if (!res.ok) {
+        throw new Error(`ILOSTAT median ${res.status}`);
+    }
+
+    const csv = await res.text();
+
+    if (!csv || /^\s*</.test(csv)) {
+        throw new Error("ILOSTAT median response is not CSV");
+    }
+
+    return d3.csvParse(csv);
+}
+
+async function getIloMedianSalary(c) {
+    if (medianSalaryCache.has(c.cca3)) {
+        return medianSalaryCache.get(c.cca3);
+    }
+
+    const rows = await fetchIloMedianSalaryRows(c);
+
+    if (!rows?.length) {
+        throw new Error("No median salary rows");
+    }
+
+    const sample = rows[0];
+
+    const timeK = pickField(sample, ["time", "year"]);
+    const valK = pickField(sample, ["obs_value", "value"]);
+    const sexK = pickField(sample, ["sex"]);
+    const currencyK = pickField(sample, ["classif1", "currency"]);
+    const noteK = pickField(sample, ["note_indicator", "note_source"]);
+
+    if (!timeK || !valK) {
+        throw new Error("Unexpected median salary schema");
+    }
+
+    let usable = rows.filter(row => Number.isFinite(+row[valK]));
+
+    // Prefer total sex if the API ignored the query filter.
+    if (sexK) {
+        const total = usable.filter(row =>
+            /SEX_T|TOTAL|^T$/i.test(String(row[sexK] || ""))
+        );
+
+        if (total.length) {
+            usable = total;
+        }
+    }
+
+    // Prefer USD currency classification when multiple classifications are returned.
+    if (currencyK) {
+        const usdRows = usable.filter(row =>
+            /USD/i.test(String(row[currencyK] || ""))
+        );
+
+        if (usdRows.length) {
+            usable = usdRows;
+        }
+    }
+
+    usable.sort((a, b) =>
+        (+b[timeK] || 0) - (+a[timeK] || 0)
+    );
+
+    if (!usable.length) {
+        throw new Error("No usable median salary");
+    }
+
+    const row = usable[0];
+
+    const result = {
+        usd: +row[valK],
+        year: row[timeK],
+        note: noteK ? row[noteK] : ""
+    };
+
+    if (!Number.isFinite(result.usd) || result.usd <= 0) {
+        throw new Error("Invalid median salary value");
+    }
+
+    medianSalaryCache.set(c.cca3, result);
+
+    return result;
+}
+
 async function fetchIloSalaryRows(c) {
     const params = new URLSearchParams({
         id: "EAR_4MTH_SEX_CUR_NB_A",
@@ -989,44 +1094,107 @@ function pickField(obj, candidates) {
 async function loadSalary(c) {
     const override = COUNTRY_OVERRIDES[c.cca3];
 
-    if (override?.salaryTwd) {
-        $("salary").textContent = `NT$ ${fmtInt.format(override.salaryTwd)}`;
+    /*
+     * 1. ILOSTAT median salary first.
+     *
+     * The goal is to represent the pay level of a typical employee rather
+     * than letting a relatively small number of very high earners pull the
+     * displayed number upward.
+     */
+    try {
+        const median = await Promise.race([
+            getIloMedianSalary(c),
+            new Promise((_, reject) =>
+                setTimeout(
+                    () => reject(new Error("Median salary timeout")),
+                    4500
+                )
+            )
+        ]);
+
+        let usdTwd = 32;
+
+        try {
+            usdTwd = await getFX("USD", "TWD");
+        } catch (err) {
+            console.warn("FX fallback", err);
+        }
+
+        const twd = median.usd * usdTwd;
+
+        if ($("salaryLabel")) {
+            $("salaryLabel").textContent = "月薪中位數（新台幣）";
+        }
+
+        $("salary").textContent = `NT$ ${fmtInt.format(twd)}`;
         $("salaryNote").textContent =
-            `行政院主計總處 · ${override.salaryYear} · 工業及服務業總薪資平均`;
+            `ILOSTAT ${median.year} · 受僱者月薪中位數 · US$ ${fmtInt.format(median.usd)}/月`;
+
+        $("salary").classList.remove("loading");
+        return;
+
+    } catch (err) {
+        console.warn(`Median salary unavailable for ${c.cca3}; using average fallback`, err);
+    }
+
+    /*
+     * 2. Taiwan official average fallback.
+     *
+     * ILOSTAT does not consistently include Taiwan in its country tables.
+     */
+    if (override?.salaryTwd) {
+        if ($("salaryLabel")) {
+            $("salaryLabel").textContent = "平均月薪（新台幣）";
+        }
+
+        $("salary").textContent =
+            `NT$ ${fmtInt.format(override.salaryTwd)}`;
+
+        $("salaryNote").textContent =
+            `行政院主計總處 · ${override.salaryYear} · 工業及服務業總薪資平均 · 中位數暫缺`;
+
         $("salary").classList.remove("loading");
         return;
     }
 
+    /*
+     * 3. Embedded 206-country gross average salary fallback.
+     */
     const embeddedUsd = SALARY_USD[c.cca3];
 
     if (Number.isFinite(embeddedUsd)) {
+        let usdTwd = 32;
+
         try {
-            let usdTwd = 32;
-
-            try {
-                usdTwd = await getFX("USD", "TWD");
-            } catch (err) {
-                console.warn("FX fallback", err);
-            }
-
-            const twd = embeddedUsd * usdTwd;
-
-            $("salary").textContent = `NT$ ${fmtInt.format(twd)}`;
-            $("salaryNote").textContent =
-                `2026 全球稅前平均月薪參考 · US$ ${fmtInt.format(embeddedUsd)}/月 · 換算 TWD`;
-        } finally {
-            $("salary").classList.remove("loading");
+            usdTwd = await getFX("USD", "TWD");
+        } catch (err) {
+            console.warn("FX fallback", err);
         }
 
+        const twd = embeddedUsd * usdTwd;
+
+        if ($("salaryLabel")) {
+            $("salaryLabel").textContent = "平均月薪（新台幣）";
+        }
+
+        $("salary").textContent =
+            `NT$ ${fmtInt.format(twd)}`;
+
+        $("salaryNote").textContent =
+            `中位數暫缺 · 2026 稅前平均月薪參考 · US$ ${fmtInt.format(embeddedUsd)}/月`;
+
+        $("salary").classList.remove("loading");
         return;
     }
 
-    // Optional fallback for countries not covered by the embedded table.
+    /*
+     * 4. Last-resort ILOSTAT average salary.
+     */
     try {
         const rows = await fetchIloSalaryRows(c);
 
         if (!rows?.length) {
-            throw new Error("No ILO wage rows");
+            throw new Error("No ILO average wage rows");
         }
 
         const sample = rows[0];
@@ -1034,15 +1202,17 @@ async function loadSalary(c) {
         const valK = pickField(sample, ["obs_value", "value"]);
 
         if (!timeK || !valK) {
-            throw new Error("Unexpected ILO schema");
+            throw new Error("Unexpected ILO average salary schema");
         }
 
         const usable = rows
-            .filter(r => Number.isFinite(+r[valK]))
-            .sort((a, b) => (+b[timeK] || 0) - (+a[timeK] || 0));
+            .filter(row => Number.isFinite(+row[valK]))
+            .sort((a, b) =>
+                (+b[timeK] || 0) - (+a[timeK] || 0)
+            );
 
         if (!usable.length) {
-            throw new Error("No usable wage values");
+            throw new Error("No usable average salary");
         }
 
         const row = usable[0];
@@ -1056,17 +1226,27 @@ async function loadSalary(c) {
             console.warn("FX fallback", err);
         }
 
-        const twd = salaryUsd * usdTwd;
+        if ($("salaryLabel")) {
+            $("salaryLabel").textContent = "平均月薪（新台幣）";
+        }
 
-        $("salary").textContent = `NT$ ${fmtInt.format(twd)}`;
+        $("salary").textContent =
+            `NT$ ${fmtInt.format(salaryUsd * usdTwd)}`;
+
         $("salaryNote").textContent =
-            `ILOSTAT ${row[timeK]} · 稅前平均月薪 · 換算 TWD`;
+            `中位數暫缺 · ILOSTAT ${row[timeK]} · 平均月薪`;
+
     } catch (err) {
         console.warn("Salary", err);
 
+        if ($("salaryLabel")) {
+            $("salaryLabel").textContent = "月薪（新台幣）";
+        }
+
         $("salary").textContent = "資料暫缺";
         $("salaryNote").textContent =
-            "目前尚未收錄此國家的可比較平均月薪資料";
+            "ILOSTAT 中位數與平均數皆無可用資料";
+
     } finally {
         $("salary").classList.remove("loading");
     }
